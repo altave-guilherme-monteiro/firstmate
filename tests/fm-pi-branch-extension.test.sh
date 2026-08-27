@@ -774,8 +774,8 @@ EOF
   body=$(./bin/fm-operational-input.sh body < "$home/state/delivered-captain-note") \
     || fail "captain outcome envelope carries no readable body"
   case "$body" in
-    *"task-9: PR https://example.com/pr/9"*) ;;
-    *) fail "captain outcome body lost the outcome itself: $body" ;;
+    *"This is a supervision outcome delivered automatically by the supervision branch."*"It was not typed by the captain."*"task-9: PR https://example.com/pr/9"*) ;;
+    *) fail "captain outcome body lost its self-description or the outcome itself: $body" ;;
   esac
   # Both halves of the delivered instruction matter and they pull against each
   # other: main must be allowed to stay quiet about an outcome it has already
