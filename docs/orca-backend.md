@@ -13,7 +13,7 @@ Orca is explicit-only and does not support secondmate spawns.
 Prerequisites:
 
 - The Orca desktop app installed, running, and ready (`/Applications/Orca.app` on macOS; see the [Orca repository](https://github.com/stablyai/orca) for the Windows and Linux builds, unexercised by Firstmate).
-- The `orca` CLI, installed with `brew install orca` on macOS or the equivalent package for the other platforms.
+- The `orca` CLI, installed with `brew install orca` on macOS; the non-macOS CLI install path is unverified by Firstmate.
 - The universal harness and toolchain requirements in [`configuration.md`](configuration.md#toolchain).
 
 Select Orca with local `config/backend` containing `orca`, `FM_BACKEND=orca` for one launch, or an explicit request to Firstmate.
