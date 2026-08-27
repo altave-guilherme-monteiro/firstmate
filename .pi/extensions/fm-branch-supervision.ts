@@ -110,7 +110,6 @@ const sessionPointer = join(state, ".branch-session");
 const mirrorCursorFile = join(state, ".branch-mirror-cursor");
 const promptScript = join(fmRoot, "bin", "fm-branch-prompt.sh");
 const outcomeScript = join(fmRoot, "bin", "fm-branch-outcome.sh");
-const mergeNotifiedScript = join(fmRoot, "bin", "fm-pr-merge-notified.sh");
 const leaseScript = join(fmRoot, "bin", "fm-lease.sh");
 const wakeGrantScript = join(fmRoot, "bin", "fm-wake-grant.sh");
 const loadedMarker = join(state, ".pi-branch-extension-loaded");
@@ -134,7 +133,7 @@ const MERGE_NOTE_BOAT = "⛵";
 // The relay order is CONDITIONAL on purpose. The note still has to say what it
 // is - that self-description is what stops main from mistaking an incoming
 // outcome for its own earlier answer and re-emitting that answer while the
-// outcome is silently lost. But an unconditional "this is not your own earlier
+// outcome is silently lost. But an unconditional "it is not your own earlier
 // output, relay it now" also asserted something that is false whenever main was
 // separately woken for the same event on its own row, and it turned the correct
 // response - saying nothing new - into a mechanical re-report. Naming the
@@ -149,10 +148,6 @@ const CAPTAIN_OUTCOME_INSTRUCTION =
 type MirrorItem = { tag: "captain" | "main"; text: string };
 type MirrorCursor = { file: string; index: number };
 type Verdict = "routine" | "captain";
-// What one merge into main actually did: whether the durable read cursor
-// advanced, and whether a captain outcome was downgraded to the rendered
-// routine note because the captain had already been told (see mergeIntoMain).
-type MergeDelivery = { ok: boolean; downgraded: boolean };
 type LockOwnership = "owned" | "other" | "missing";
 
 const scriptEnv = {
@@ -568,12 +563,10 @@ export default function (pi: ExtensionAPI) {
   // itself the captain-visible outcome, so the captain-facing note is
   // delivered silently (display: false) rather than printed or rendered a
   // second time; routine notes stay rendered except an explicitly silent
-  // no-change heartbeat. The one exception to the captain path is a merge the
-  // captain has already been told about, which takes the rendered routine
-  // shape instead (mainAlreadyReportedMerge). The read cursor advances once
-  // the note is handed to Pi; a crash inside Pi's own delivery window leaves
-  // the outcome durable in the store, where main's fm_branch_outcomes tool
-  // still reads it on demand.
+  // no-change heartbeat. The read cursor advances once the note is handed to
+  // Pi; a crash inside Pi's
+  // own delivery window leaves the outcome durable in the store, where
+  // main's fm_branch_outcomes tool still reads it on demand.
   //
   // Pi keeps only `content` when it converts a custom message for the model:
   // customType, display, and details never reach the provider. A captain note
@@ -599,40 +592,6 @@ export default function (pi: ExtensionAPI) {
     }
   }
 
-  // One real-world merge reaches this home twice by design: main is woken on
-  // its own merge poll, whose queue row is permanently main-owned
-  // (lib/fm-branch-dispatch.ts never offers a check row to the branch), and
-  // the branch is woken again when the same merge lands in a task's status
-  // log. Main's captain-facing text only reaches the branch's mirror at main's
-  // turn end, so the branch can reasonably decide to escalate seconds before
-  // it could possibly see that the captain has already been told, and the
-  // captain gets one merge reported twice.
-  //
-  // Racing the mirror does not close that; asking the canonical record does.
-  // bin/fm-merge-outcome-lib.sh commits bin/fm-pr-lib.sh's merge-notification
-  // marker when a merge is published to this home's supervision destination,
-  // and bin/fm-pr-merge-notified.sh answers whether an outcome names one of
-  // those already-published merges. That answer holds regardless of mirror
-  // timing, which is what makes it the fix rather than a narrower race window.
-  //
-  // Failure direction, as everywhere in this file: an error, a timeout, or an
-  // unreadable state directory answers "not yet published" and the outcome is
-  // relayed. A duplicate report announces itself; a lost outcome does not.
-  function mainAlreadyReportedMerge(summary: string): boolean {
-    try {
-      const result = spawnSync("bash", [mergeNotifiedScript], {
-        cwd: fmRoot,
-        encoding: "utf8",
-        env: scriptEnv,
-        input: summary,
-        timeout: 10000,
-      });
-      return result.status === 0;
-    } catch {
-      return false;
-    }
-  }
-
   function mergeIntoMain(
     expectedGeneration: number,
     seq: string,
@@ -640,18 +599,9 @@ export default function (pi: ExtensionAPI) {
     verdict: Verdict,
     summary: string,
     silent: boolean,
-  ): MergeDelivery {
-    if (!actingAsOwner(expectedGeneration)) return { ok: false, downgraded: false };
-    // A captain outcome the captain has already been given is delivered as the
-    // ordinary rendered note instead: still appended, still visible in Pi, but
-    // no second model turn is spent re-reporting what main already said.
-    // The marker owner retains only the latest published PR per task, so a
-    // second publication can displace a delayed first outcome and still open a
-    // turn. This residual is accepted: M1 keeps that turn quiet, while closing
-    // it would require a new durable identity record this change does not add.
-    const downgraded = verdict === "captain" && mainAlreadyReportedMerge(summary);
-    if (!actingAsOwner(expectedGeneration)) return { ok: false, downgraded };
-    if (verdict === "captain" && !downgraded) {
+  ): boolean {
+    if (!actingAsOwner(expectedGeneration)) return false;
+    if (verdict === "captain") {
       const message = {
         customType: "fm-branch-merge",
         content: captainOutcomeInput(task, summary),
@@ -667,10 +617,10 @@ export default function (pi: ExtensionAPI) {
       }
     }
     if (/^[0-9]+$/.test(seq)) {
-      if (!actingAsOwner(expectedGeneration)) return { ok: false, downgraded };
-      return { ok: runOutcomeScript(["mark-read", "--through", seq]).ok, downgraded };
+      if (!actingAsOwner(expectedGeneration)) return false;
+      return runOutcomeScript(["mark-read", "--through", seq]).ok;
     }
-    return { ok: true, downgraded };
+    return true;
   }
 
   function createReportTool(toolGeneration: number): ToolDefinition {
@@ -724,8 +674,7 @@ export default function (pi: ExtensionAPI) {
             isError: true,
           };
         }
-        const merged = mergeIntoMain(toolGeneration, appended.stdout, task, verdict, summary, silent);
-        if (!merged.ok) {
+        if (!mergeIntoMain(toolGeneration, appended.stdout, task, verdict, summary, silent)) {
           return {
             content: [{ type: "text", text: `recorded seq ${appended.stdout}, but merge refused after supervision replacement or lock loss` }],
             details: undefined,
@@ -733,12 +682,7 @@ export default function (pi: ExtensionAPI) {
           };
         }
         return {
-          content: [{
-            type: "text",
-            text: merged.downgraded
-              ? `recorded seq ${appended.stdout} and merged [captain] into main as a routine note: the captain was already told about that merge`
-              : `recorded seq ${appended.stdout} and merged [${verdict}] into main`,
-          }],
+          content: [{ type: "text", text: `recorded seq ${appended.stdout} and merged [${verdict}] into main` }],
           details: undefined,
         };
       },
