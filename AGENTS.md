@@ -523,6 +523,7 @@ The generated Herdr contract must use a named non-`default` isolated lab and its
 Load `secondmate-provisioning` before creating or using a charter brief and preserve its idle-by-default and marked-return-channel contracts.
 Status appends are sparse supervisor-actionable events, not routine progress; `bin/fm-classify-lib.sh` owns keyed open and resolved semantics.
 The scaffold is a safety contract, not a suggestion.
+Every scout and ship scaffold declares `bin/fm-graphify-setup.sh` as an early setup step so the crewmate builds a local codebase graph before grepping blind; `bin/fm-graphify-setup.sh --help` owns the mechanics.
 
 ## 12. Self-update
 

@@ -330,6 +330,7 @@ $HERDR_SECTION
 
 # Setup
 You are in a disposable git worktree of $REPO, at a detached HEAD on a clean default branch.
+Build this worktree's code graph before you start reading files: \`$FM_ROOT/bin/fm-graphify-setup.sh .\`. Then use \`graphify query "<question>"\`, \`graphify path A B\`, and \`graphify explain "<node>"\` to answer structural questions (what reaches this file, how does A connect to B) instead of grepping blind.
 This is a SCOUT task: the deliverable is a written report, not a PR.
 The worktree is your laboratory - install, run, edit, and make scratch commits freely; all of it is discarded at teardown.
 The report is the only thing that survives, so anything worth keeping must be in it.
@@ -377,7 +378,8 @@ fi
 # explicit --mode before launching.
 case "$MODE" in
   direct-PR)
-    SETUP2=""
+    SETUP2="
+2. Build this worktree's code graph: \`$FM_ROOT/bin/fm-graphify-setup.sh .\`; then use \`graphify query \"<question>\"\`, \`graphify path A B\`, and \`graphify explain \"<node>\"\` to answer structural questions instead of grepping blind."
     RULE1='1. Never push to the default branch (push only your `fm/'"$ID"'` branch). Never merge a PR.'
     IFS= read -r -d '' DOD <<EOF || true
 # Definition of done
@@ -389,7 +391,8 @@ Do NOT run /no-mistakes. The configured merge authority decides whether to merge
 EOF
     ;;
   local-only)
-    SETUP2=""
+    SETUP2="
+2. Build this worktree's code graph: \`$FM_ROOT/bin/fm-graphify-setup.sh .\`; then use \`graphify query \"<question>\"\`, \`graphify path A B\`, and \`graphify explain \"<node>\"\` to answer structural questions instead of grepping blind."
     RULE1="1. Never push to any remote and never open a PR. Work only on your \`fm/$ID\` branch; firstmate handles the merge into local \`main\`."
     IFS= read -r -d '' DOD <<EOF || true
 # Definition of done
@@ -403,7 +406,8 @@ EOF
     ;;
   *)  # no-mistakes
     SETUP2="
-2. Run \`no-mistakes doctor\`; if it reports the repo is not initialized here, run \`no-mistakes init\`."
+2. Build this worktree's code graph: \`$FM_ROOT/bin/fm-graphify-setup.sh .\`; then use \`graphify query \"<question>\"\`, \`graphify path A B\`, and \`graphify explain \"<node>\"\` to answer structural questions instead of grepping blind.
+3. Run \`no-mistakes doctor\`; if it reports the repo is not initialized here, run \`no-mistakes init\`."
     RULE1='1. Never push to the default branch. Never merge a PR.'
     IFS= read -r -d '' DOD <<EOF || true
 # Definition of done
