@@ -130,15 +130,15 @@ const MERGE_NOTE_BOAT = "⛵";
 // Carried inside the captain note's own text because that text is the only
 // part of a custom message Pi gives the model (see mergeIntoMain).
 //
-// The relay order is CONDITIONAL on purpose. The note still has to say what it
-// is - that self-description is what stops main from mistaking an incoming
-// outcome for its own earlier answer and re-emitting that answer while the
-// outcome is silently lost. But an unconditional "it is not your own earlier
-// output, relay it now" also asserted something that is false whenever main was
-// separately woken for the same event on its own row, and it turned the correct
-// response - saying nothing new - into a mechanical re-report. Naming the
-// already-reported case explicitly keeps the self-description and lets main
-// deduplicate, which is what a person in main's seat would do.
+// The relay order is CONDITIONAL on purpose. This M1 fix is deliberately a
+// model-facing instruction only: mergeIntoMain must keep opening the follow-up
+// turn so a genuinely new outcome cannot be suppressed before main sees it.
+// The note still needs its self-description to stop main from mistaking an
+// incoming outcome for its own earlier answer and silently losing the outcome.
+// But an unconditional relay order is false whenever main was separately woken
+// for the same event, and turns the correct response - saying nothing new -
+// into a mechanical re-report. The conditional wording lets main stay quiet
+// when appropriate; source-level identity suppression is outside this M1 fix.
 const CAPTAIN_OUTCOME_INSTRUCTION =
   "This is a supervision outcome delivered automatically by the supervision branch. " +
   "It was not typed by the captain. " +

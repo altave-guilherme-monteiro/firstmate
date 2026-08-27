@@ -56,7 +56,7 @@ The follow-up turn a `captain` verdict opens is itself the captain-visible outco
 Because Pi gives the model only a custom message's `content`, that silent note normally carries both a relay instruction and the `branch-outcome` operational kind owned by `bin/fm-operational-input.sh` inside its own text.
 This self-description lets main distinguish a new supervision outcome from its own earlier captain-facing answer; without it, main can mistake the outcome for that answer and re-emit the stale answer instead of relaying the outcome.
 The relay instruction itself is conditional: it tells main to stay quiet about an outcome it has already given the captain in this conversation, and to relay anything else rather than restate an earlier answer.
-An unconditional order made main re-report an outcome the captain already had, because more than one actor can be woken for the same event and neither sees the other's captain-facing text immediately.
+An unconditional order made main re-report an outcome the captain already had; this M1 fix deliberately conditions main's relay without adding source-level suppression, because more than one actor can be woken for the same event.
 If envelope encoding fails, the note degrades to the same relay instruction as plain text rather than losing the outcome or opening another turn.
 A no-change heartbeat outcome explicitly reported with `task=fleet` and `silent=true` is also delivered silently with no rendered note, while every other `routine` outcome stays rendered with its sailboat prefix.
 The verdict criteria in the branch prompt mirror the captain-etiquette escalation list; doubt escalates.
