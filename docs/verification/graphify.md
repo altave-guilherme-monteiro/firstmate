@@ -110,6 +110,8 @@ repo with no CLAUDE.md and no .claude/   -> exit 0; CLAUDE.md absent again; .cla
 repo with tracked CLAUDE.md + settings.json -> exit 0; md5sum -c CLAUDE.md OK; install skipped, settings.json untouched, no index state touched
 graphify stub that appends to CLAUDE.md then exits 3 -> exit 3 propagated; CLAUDE.md restored by the EXIT trap
 ```
+`tests/fm-graphify-setup.test.sh` now covers these hygiene paths as a regression test, so they are re-checked on every run of `bin/fm-test-run.sh` rather than only by the dated manual runs above.
+
 An incremental rerun after the first build cost `real 0m4.231s` on this repository, so a rebuild after edits stays in the same few-seconds band as the cold build.
 
 ## Strict hook timing
