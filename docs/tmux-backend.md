@@ -14,7 +14,7 @@ An explicit selection is also the opt-out from Herdr or cmux runtime auto-detect
 
 No provisioning is required before the first task.
 
-tmux being the hard default does not mean every host has it installed: a home with no tmux binary falls through runtime auto-detection or an explicit `config/backend`/`FM_BACKEND` to whichever backend is actually available, and every task on that home runs there instead until tmux is installed or explicitly selected.
+tmux being the hard default does not mean every host has it installed, and a missing tmux binary is not itself a selection signal: backend selection is driven by `config/backend`/`FM_BACKEND` and runtime auto-detection's environment markers, so a host without tmux runs every task on another backend only when auto-detection or an explicit selection picks one, and otherwise resolves to tmux and fails its `tmux` toolchain requirement until tmux is installed.
 
 ## Watching the crew
 
