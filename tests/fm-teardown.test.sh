@@ -119,6 +119,14 @@ SH
   cat > "$fakebin/no-mistakes" <<'SH'
 #!/usr/bin/env bash
 case "${1:-}" in
+  status)
+    if [ -n "${FM_FAKE_NM_FORK_URL:-}" ]; then
+      printf '    repo:  %s\n' "${FM_FAKE_NM_REPO:-/case/project}"
+      printf '  remote:  %s\n' "${FM_FAKE_NM_REMOTE:-https://github.com/example/repo.git}"
+      printf '    fork:  %s\n' "$FM_FAKE_NM_FORK_URL"
+    fi
+    exit 0
+    ;;
   axi)
     shift
     case "${1:-}" in
@@ -274,6 +282,36 @@ case "\${1:-} \${2:-}" in
   "pr view")
     case " \$* " in
       *"state,headRefOid"*) printf '%s\t%s\n' 'MERGED' '$head' ; exit 0 ;;
+      *"headRefOid"*) printf '%s\n' '$head' ; exit 0 ;;
+    esac
+    ;;
+esac
+echo "error: pull request not found" >&2
+exit 1
+SH
+  chmod +x "$case_dir/fakebin/gh-axi" "$case_dir/fakebin/gh"
+}
+
+add_gh_pr_open_on_fork_for_head() {
+  local case_dir=$1 head=$2 owner_repo=$3 owner repo
+  owner=${owner_repo%%/*}
+  repo=${owner_repo#*/}
+  cat > "$case_dir/fakebin/gh-axi" <<'SH'
+#!/usr/bin/env bash
+case "${1:-} ${2:-}" in
+  "pr list")
+    printf '%s\n' "count: 1 (showing first 1)" "pull_requests[1]{number,state}:" "  7,open" ; exit 0 ;;
+  "pr view")
+    printf '%s\n' "pull_request:" "  number: 7" "  state: open" ; exit 0 ;;
+esac
+exit 0
+SH
+  cat > "$case_dir/fakebin/gh" <<SH
+#!/usr/bin/env bash
+case "\${1:-} \${2:-}" in
+  "pr view")
+    case " \$* " in
+      *"headRepositoryOwner"*) printf '%s\t%s\t%s/%s\n' 'OPEN' '$head' '$owner' '$repo' ; exit 0 ;;
       *"headRefOid"*) printf '%s\n' '$head' ; exit 0 ;;
     esac
     ;;
@@ -690,6 +728,42 @@ test_no_mistakes_truly_unpushed_refuses() {
   expect_code 1 "$rc" "nm-unpushed: teardown should refuse"
   grep -q REFUSED "$case_dir/stderr" || fail "nm-unpushed: no REFUSED line in stderr"
   pass "no-mistakes worktree with genuinely unlanded work is refused (safety preserved)"
+}
+
+test_no_mistakes_fork_pushed_open_pr_allows() {
+  local case_dir rc head
+  case_dir=$(make_case nm-fork-open-pr)
+  write_meta "$case_dir" no-mistakes ship
+  wt_commit_file "$case_dir" feature.txt hello "fork work"
+  head=$(git -C "$case_dir/wt" rev-parse HEAD)
+  add_gh_pr_open_on_fork_for_head "$case_dir" "$head" "altave-guilherme-monteiro/firstmate"
+
+  set +e
+  FM_FAKE_NM_FORK_URL="https://github.com/altave-guilherme-monteiro/firstmate.git" \
+    run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 0 "$rc" "nm-fork-open-pr: teardown should succeed when the branch is pushed and carried by an open PR on the configured fork"
+  ! grep -q REFUSED "$case_dir/stderr" || fail "nm-fork-open-pr: teardown printed a REFUSED line"
+  pass "no-mistakes worktree pushed and carried by an open PR on the configured fork is torn down (fork fix)"
+}
+
+test_no_mistakes_fork_configured_but_unlanded_refuses() {
+  local case_dir rc
+  case_dir=$(make_case nm-fork-unlanded)
+  write_meta "$case_dir" no-mistakes ship
+  wt_commit_file "$case_dir" feature.txt hello "unpushed work with a fork configured"
+
+  set +e
+  FM_FAKE_NM_FORK_URL="https://github.com/altave-guilherme-monteiro/firstmate.git" \
+    run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 1 "$rc" "nm-fork-unlanded: teardown should refuse when the fork is configured but the commits reach neither the fork nor origin"
+  grep -q REFUSED "$case_dir/stderr" || fail "nm-fork-unlanded: no REFUSED line in stderr"
+  pass "no-mistakes worktree with a configured fork but no matching pushed PR is still refused (safety preserved)"
 }
 
 test_squash_merged_branch_deleted_allows() {
@@ -2598,6 +2672,8 @@ test_local_only_truly_unpushed_refuses
 test_local_only_merged_to_local_main_allows
 test_no_mistakes_origin_remote_allows
 test_no_mistakes_truly_unpushed_refuses
+test_no_mistakes_fork_pushed_open_pr_allows
+test_no_mistakes_fork_configured_but_unlanded_refuses
 test_local_only_force_overrides_unpushed
 test_teardown_missing_busy_sidecar_completes
 test_herdr_teardown_clears_escalation_marker

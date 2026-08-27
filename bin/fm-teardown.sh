@@ -1120,14 +1120,59 @@ content_in_default() {
   [ "$merged_tree" = "$default_tree" ]
 }
 
-# Has the worktree's committed work actually LANDED, though its commits are not
-# reachable from any remote-tracking branch? True when a merged PR proves the
-# current local work is contained in the PR head, OR the content is already in the
-# default branch (fallback, which also covers the no-PR and gh-error paths). False
-# only for genuinely unlanded work.
+configured_fork_remote() {
+  local out fork
+  command -v no-mistakes >/dev/null 2>&1 || return 1
+  out=$(cd "$WT" && no-mistakes status 2>/dev/null) || return 1
+  fork=$(printf '%s\n' "$out" | sed -n 's/^[[:space:]]*fork:[[:space:]]*//p' | head -1)
+  [ -n "$fork" ] || return 1
+  printf '%s' "$fork"
+}
+
+github_owner_repo() {
+  local url=$1 stripped
+  stripped=${url#https://github.com/}
+  stripped=${stripped#git@github.com:}
+  stripped=${stripped%.git}
+  stripped=${stripped%/}
+  printf '%s' "$stripped" | tr '[:upper:]' '[:lower:]'
+}
+
+pr_open_on_fork_carries_work() {
+  local branch=$1 fork_url fork_owner_repo target view rest state head head_owner_repo current
+  fork_url=$(configured_fork_remote) || return 1
+  fork_owner_repo=$(github_owner_repo "$fork_url")
+  [ -n "$fork_owner_repo" ] || return 1
+  if [ -n "$PR_URL" ]; then
+    target=$PR_URL
+  else
+    target=$(pr_number_from_branch "$branch") || return 1
+  fi
+  [ -n "$target" ] || return 1
+  view=$(cd "$WT" && gh pr view "$target" --json state,headRefOid,headRepositoryOwner,headRepository \
+    -q '.state + "\t" + .headRefOid + "\t" + (.headRepositoryOwner.login // "") + "/" + (.headRepository.name // "")' 2>/dev/null) || return 1
+  state=${view%%$'\t'*}
+  rest=${view#*$'\t'}
+  [ "$state" != "$view" ] || return 1
+  head=${rest%%$'\t'*}
+  head_owner_repo=$(printf '%s' "${rest#*$'\t'}" | tr '[:upper:]' '[:lower:]')
+  [ "$head" != "$rest" ] || return 1
+  case "$state" in
+    OPEN|open) ;;
+    *) return 1 ;;
+  esac
+  [ -n "$head" ] || return 1
+  [ "$head_owner_repo" = "$fork_owner_repo" ] || return 1
+  ensure_commit_object "$target" "$head" || return 1
+  current=$(git -C "$WT" rev-parse --verify HEAD 2>/dev/null) || return 1
+  git -C "$WT" merge-base --is-ancestor "$current" "$head" 2>/dev/null && return 0
+  unpushed_patches_are_in_pr_head "$head"
+}
+
 work_is_landed() {
   local branch=$1
   pr_is_merged "$branch" && return 0
+  pr_open_on_fork_carries_work "$branch" && return 0
   content_in_default
 }
 

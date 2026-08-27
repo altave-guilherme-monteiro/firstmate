@@ -256,7 +256,7 @@ test_ship_mode_is_explicit_not_registry() {
   brief="$home/data/brief-explicit-a5/brief.md"
   grep -qx "Delivery contract: mode=no-mistakes" "$brief" \
     || fail "registered direct-PR posture overrode the explicit --mode"
-  assert_grep "Firstmate will then instruct you to run /no-mistakes" "$brief" \
+  assert_grep "You drive no-mistakes by responding to its gates" "$brief" \
     "explicit no-mistakes brief did not render the pipeline definition of done"
 
   # An unregistered project is not a blocker either, because nothing is looked up.
@@ -352,6 +352,27 @@ test_no_mistakes_dod_wording() {
   assert_grep "firstmate's authority check" "$brief" \
     "no-mistakes DOD lost the apostrophe prose that the structural fix makes parse-safe"
   pass "fm-brief.sh: no-mistakes DOD keeps its apostrophe prose, now parse-safe"
+}
+
+test_no_mistakes_dod_has_exactly_one_done_gate() {
+  local home id brief done_count
+  home="$TMP_ROOT/one-done-gate-home"
+  mkdir -p "$home/data"
+  id="brief-one-done-b2"
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" some-proj --mode no-mistakes >/dev/null 2>&1
+  brief="$home/data/$id/brief.md"
+  assert_present "$brief" "brief was not scaffolded"
+  done_count=$(grep -Fc "append \`done:" "$brief")
+  [ "$done_count" = 1 ] || fail "a no-mistakes brief must instruct exactly one \`done:\` emission, found $done_count"
+  assert_grep "append \`done: PR {url} checks green\`" "$brief" \
+    "the sole done: gate must require a PR url and green checks"
+  assert_grep "This is the ONLY \`done:\` line for a no-mistakes ship task" "$brief" \
+    "the DOD must say plainly that this is the only done: gate"
+  assert_grep "append \`working: implementation committed on fm/$id, entering /no-mistakes\`" "$brief" \
+    "a committed-but-unvalidated implementation must report working:, not done:"
+  assert_no_grep "append \`done: {summary}\`" "$brief" \
+    "the old ambiguous done: {summary} checkpoint must be gone"
+  pass "fm-brief.sh: a no-mistakes ship task's DOD has exactly one done: gate, gated on a PR with green checks"
 }
 
 test_ship_project_memory_wording() {
@@ -760,6 +781,7 @@ test_ship_mode_is_explicit_not_registry
 test_delivery_flags_are_refused_where_they_do_not_apply
 test_faster_paths_use_configured_authority_without_stacked_review
 test_no_mistakes_dod_wording
+test_no_mistakes_dod_has_exactly_one_done_gate
 test_ship_project_memory_wording
 test_herdr_lab_contract_is_explicit_and_complete
 test_herdr_lab_contract_quotes_foreign_firstmate_path
