@@ -19,7 +19,7 @@ case "$1" in
     exit "${FM_STUB_UPDATE_EXIT:-0}"
     ;;
   claude)
-    [ -n "${FM_STUB_INSTALL_HANG:-}" ] && { printf '\n## graphify\n\nquery the graph first.\n' >> CLAUDE.md; touch "$FM_STUB_INSTALL_HANG"; sleep 30; exit 0; }
+    [ -n "${FM_STUB_INSTALL_HANG:-}" ] && { printf '\n## graphify\n\nquery the graph first.\n' >> CLAUDE.md; touch "$FM_STUB_INSTALL_HANG"; while [ -e "$FM_STUB_INSTALL_HANG" ]; do sleep 0.05; done; exit 0; }
     mkdir -p .claude
     [ -f .claude/settings.json ] && cp .claude/settings.json .claude/settings.json.graphify-bak
     printf '{"hooks":{"PreToolUse":[]}}\n' > .claude/settings.json
@@ -119,6 +119,7 @@ test_interrupted_install_still_restores_claude_md() {
   for _ in $(seq 1 100); do [ -e "$marker" ] && break; sleep 0.1; done
   [ -e "$marker" ] || fail "the hanging install stub never started"
   kill -HUP "$pid"
+  rm -f "$marker"
   wait "$pid" 2>/dev/null
   after=$(cksum < "$repo/CLAUDE.md")
   [ "$before" = "$after" ] || fail "CLAUDE.md was not restored after the setup was signalled mid-install"
@@ -192,6 +193,19 @@ test_partial_root_ignore_still_covers_every_artifact() {
   pass "fm-graphify-setup.sh: pre-ignoring only graph.json still leaves the whole graphify-out ignored"
 }
 
+test_tracked_ignore_file_that_already_covers_allows_the_hook() {
+  local repo out
+  repo="$TMP_ROOT/tracked-covering-ignore"
+  new_repo "$repo"
+  mkdir -p "$repo/.claude"
+  printf 'settings.json\nsettings.json.graphify-bak\n' > "$repo/.claude/.gitignore"
+  commit_all "$repo"
+  out=$(run_setup "$repo" env) || fail "setup failed with a tracked .claude/.gitignore that already covers settings.json: $out"
+  assert_present "$repo/.claude/settings.json" "the hook was skipped even though the tracked .gitignore already covers settings.json"
+  assert_worktree_clean "$repo" "the hook install dirtied a repo whose tracked .gitignore already covers its artifacts"
+  pass "fm-graphify-setup.sh: a tracked .gitignore that already covers the artifacts still gets the hook"
+}
+
 test_tracked_ignore_file_is_never_edited() {
   local repo out
   repo="$TMP_ROOT/tracked-ignore"
@@ -209,6 +223,7 @@ test_tracked_ignore_file_is_never_edited() {
 test_fresh_repo_leaves_no_committable_artifact
 test_partial_preexisting_ignore_files_are_extended
 test_partial_root_ignore_still_covers_every_artifact
+test_tracked_ignore_file_that_already_covers_allows_the_hook
 test_tracked_ignore_file_is_never_edited
 test_ignored_settings_json_is_still_committable_on_demand
 test_existing_settings_json_is_never_touched_or_hidden

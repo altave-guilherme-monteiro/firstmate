@@ -80,8 +80,16 @@ DIR=$(cd "$DIR" && pwd -P)
 if ! command -v graphify >/dev/null 2>&1; then
   if command -v pipx >/dev/null 2>&1; then
     echo "graphify not found; installing with pipx..." >&2
-    pipx install graphifyy || true
-    command -v graphify >/dev/null 2>&1 || { echo "error: graphify is installed but not on PATH; ensure pipx's bin dir (usually ~/.local/bin) is on PATH, e.g. run 'pipx ensurepath' and start a new shell" >&2; exit 1; }
+    PIPX_STATUS=0
+    pipx install graphifyy || PIPX_STATUS=$?
+    if ! command -v graphify >/dev/null 2>&1; then
+      if [ "$PIPX_STATUS" -ne 0 ]; then
+        echo "error: 'pipx install graphifyy' failed with status $PIPX_STATUS (see its output above) and graphify is still not available; install it manually (see https://github.com/Graphify-Labs/graphify)" >&2
+      else
+        echo "error: graphify is installed but not on PATH; ensure pipx's bin dir (usually ~/.local/bin) is on PATH, e.g. run 'pipx ensurepath' and start a new shell" >&2
+      fi
+      exit 1
+    fi
   else
     echo "error: graphify not found and pipx is not installed; install pipx or graphify manually (see https://github.com/Graphify-Labs/graphify)" >&2
     exit 1
@@ -92,6 +100,7 @@ ensure_self_ignoring() {
   IGNORE_FILE=$1
   shift
   IGNORE_DIR=$(dirname "$IGNORE_FILE")
+  IGNORE_FILE_WRITTEN=false
   for SPEC in "$@"; do
     PROBE=${SPEC%%=*}
     PATTERN=${SPEC#*=}
@@ -99,7 +108,11 @@ ensure_self_ignoring() {
     git -C "$DIR" ls-files --error-unmatch "$IGNORE_FILE" >/dev/null 2>&1 && return 1
     mkdir -p "$IGNORE_DIR"
     printf '%s\n' "$PATTERN" >>"$IGNORE_FILE"
+    IGNORE_FILE_WRITTEN=true
   done
+  if [ "$IGNORE_FILE_WRITTEN" = true ] && ! git -C "$DIR" check-ignore -q "$IGNORE_FILE"; then
+    printf '%s\n' '.gitignore' >>"$IGNORE_FILE"
+  fi
   return 0
 }
 
@@ -124,7 +137,7 @@ if [ -e "$DIR/.claude/settings.json" ]; then
 fi
 
 if [ "$IN_GIT_WORKTREE" = true ]; then
-  ensure_self_ignoring "$DIR/.claude/.gitignore" '.gitignore=.gitignore' 'settings.json=settings.json' 'settings.json.graphify-bak=settings.json.graphify-bak' || {
+  ensure_self_ignoring "$DIR/.claude/.gitignore" 'settings.json=settings.json' 'settings.json.graphify-bak=settings.json.graphify-bak' || {
     echo "graphify strict hook skipped for $DIR: .claude/.gitignore is tracked and does not cover settings.json, so installing the hook would leave a committable artifact; ignore it yourself or run 'graphify claude install --strict' by hand"
     exit 0
   }
