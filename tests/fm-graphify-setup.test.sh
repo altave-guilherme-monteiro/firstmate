@@ -201,12 +201,12 @@ test_tracked_ignore_file_that_already_covers_allows_the_hook() {
   repo="$TMP_ROOT/tracked-covering-ignore"
   new_repo "$repo"
   mkdir -p "$repo/.claude"
-  printf 'settings.json\nsettings.json.graphify-bak\n' > "$repo/.claude/.gitignore"
+  printf 'settings.json\n' > "$repo/.claude/.gitignore"
   commit_all "$repo"
   out=$(run_setup "$repo" env) || fail "setup failed with a tracked .claude/.gitignore that already covers settings.json: $out"
   assert_present "$repo/.claude/settings.json" "the hook was skipped even though the tracked .gitignore already covers settings.json"
   assert_worktree_clean "$repo" "the hook install dirtied a repo whose tracked .gitignore already covers its artifacts"
-  pass "fm-graphify-setup.sh: a tracked .gitignore that already covers the artifacts still gets the hook"
+  pass "fm-graphify-setup.sh: a tracked .gitignore that already covers settings.json still gets the hook"
 }
 
 test_tracked_ignore_file_is_never_edited() {

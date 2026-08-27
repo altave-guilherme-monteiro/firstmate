@@ -37,7 +37,8 @@ crewmate's PR, and nothing here writes outside the target worktree (a linked
 worktree shares .git/info/exclude with the primary checkout, so that file is
 deliberately not touched). graphify-out/ is made self-ignoring with its own
 graphify-out/.gitignore, written before the build starts so an interrupted or
-failed build leaves nothing un-ignored. Coverage is checked with
+failed build leaves nothing un-ignored; that file's catch-all `*` covers the
+whole directory including any pre-existing graphify-out/.gitignore. Coverage is checked with
 `git check-ignore`, not file existence, so a repo that already ships a partial
 .gitignore gets the missing entries appended rather than silently skipped. Every
 artifact family is probed, not just graph.json, so ignore rules that happen to
@@ -53,8 +54,10 @@ The strict Claude Code hook is installed only when .claude/settings.json does
 not exist yet, so the file left behind is entirely graphify's and no content
 of the crewmate's can be hidden by ignoring it. In that case a self-ignoring
 .claude/.gitignore covering settings.json and settings.json.graphify-bak is
-ensured before the install - an ignore file this script did not create keeps
-its own visibility, only the missing entries are appended - and the script says so on stdout: a task that
+ensured before the install - a .claude/.gitignore this script did not create
+keeps its own visibility, only the missing entries are appended, and only
+settings.json coverage is required to proceed - and the script says so on
+stdout: a task that
 genuinely must commit .claude/settings.json can still do it with
 `git add -f .claude/settings.json`. When the file already exists, tracked or
 not, the install is skipped entirely - nothing is written, nothing is
@@ -104,10 +107,17 @@ ensure_self_ignoring() {
   IGNORE_FILE_IS_OURS=false
   [ -e "$IGNORE_FILE" ] || IGNORE_FILE_IS_OURS=true
   for SPEC in "$@"; do
+    SPEC_IS_REQUIRED=true
+    case "$SPEC" in
+      +*) SPEC_IS_REQUIRED=false; SPEC=${SPEC#+} ;;
+    esac
     PROBE=${SPEC%%=*}
     PATTERN=${SPEC#*=}
     git -C "$DIR" check-ignore -q "$IGNORE_DIR/$PROBE" && continue
-    git -C "$DIR" ls-files --error-unmatch "$IGNORE_FILE" >/dev/null 2>&1 && return 1
+    if git -C "$DIR" ls-files --error-unmatch "$IGNORE_FILE" >/dev/null 2>&1; then
+      [ "$SPEC_IS_REQUIRED" = true ] && return 1
+      continue
+    fi
     mkdir -p "$IGNORE_DIR"
     printf '%s\n' "$PATTERN" >>"$IGNORE_FILE"
   done
@@ -138,8 +148,8 @@ if [ -e "$DIR/.claude/settings.json" ]; then
 fi
 
 if [ "$IN_GIT_WORKTREE" = true ]; then
-  ensure_self_ignoring "$DIR/.claude/.gitignore" 'settings.json=settings.json' 'settings.json.graphify-bak=settings.json.graphify-bak' || {
-    echo "graphify strict hook skipped for $DIR: .claude/.gitignore is tracked and does not cover settings.json, so installing the hook would leave a committable artifact; ignore it yourself or run 'graphify claude install --strict' by hand"
+  ensure_self_ignoring "$DIR/.claude/.gitignore" 'settings.json=settings.json' '+settings.json.graphify-bak=settings.json.graphify-bak' || {
+    echo "graphify strict hook skipped for $DIR: .claude/settings.json is not git-ignored and .claude/.gitignore is tracked, so installing the hook would leave a committable artifact; ignore it yourself or run 'graphify claude install --strict' by hand"
     exit 0
   }
 fi
