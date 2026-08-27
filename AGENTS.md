@@ -74,6 +74,7 @@ config/supervision-branch-model config/supervision-branch-effort  Pi supervision
 config/startup-memory-budget     primary-authoritative per-home startup-memory budget; LOCAL, gitignored, materialized as 7,500 estimated tokens by locked primary bootstrap and inherited into secondmate homes; see docs/configuration.md "Startup memory budget"
 config/stow-pass-horizon  optional presence flag opting this home in to /stow's default-off pass-count decay horizon; LOCAL, gitignored, and not inherited; see docs/configuration.md "Stow pass horizon"
 config/herdr-presentation-spaces  optional "off" opt-out from, or "on" opt-in to, Herdr's default-on disposable single-task visual projection, which is unconfigured-default-on only at or above a Herdr version floor; LOCAL, gitignored; inherited by secondmate homes; see docs/herdr-backend.md "Presentation spaces"
+config/codebase-graph  optional presence flag opting this home in to the default-off graphify codebase graph declared in generated scout and ship briefs; LOCAL, gitignored; see the `codebase-graph` skill and `bin/fm-graphify-setup.sh --help`
 config/trace-context  optional presence flag enabling default-off native W3C trace-context propagation to spawned agents; LOCAL, gitignored; inherited by secondmate homes; see docs/configuration.md "Trace context propagation" and docs/trace-context.md
 config/cmux-socket-password  optional cmux control-socket password; LOCAL, gitignored; read fresh on every cmux CLI call and passed through without ever overriding an operator's own ambient CMUX_SOCKET_PASSWORD when absent (docs/cmux-backend.md "Setup")
 config/wedge-alarm  optional away-mode wedge-alarm active-alert directives; LOCAL, gitignored; absent means auto (macOS Notification Center when available); see docs/wedge-alarm.md
@@ -523,7 +524,7 @@ The generated Herdr contract must use a named non-`default` isolated lab and its
 Load `secondmate-provisioning` before creating or using a charter brief and preserve its idle-by-default and marked-return-channel contracts.
 Status appends are sparse supervisor-actionable events, not routine progress; `bin/fm-classify-lib.sh` owns keyed open and resolved semantics.
 The scaffold is a safety contract, not a suggestion.
-Every scout and ship scaffold declares `bin/fm-graphify-setup.sh` as an early setup step so the crewmate builds a local codebase graph before grepping blind; the `codebase-graph` skill owns when to build and which verb answers which question, and `bin/fm-graphify-setup.sh --help` owns the mechanics.
+When this home opts in with `config/codebase-graph`, every scout and ship scaffold declares `bin/fm-graphify-setup.sh` as an early setup step so the crewmate builds a local codebase graph before grepping blind; without that flag no brief mentions it at all. The `codebase-graph` skill owns the opt-in, when to build, and which verb answers which question, and `bin/fm-graphify-setup.sh --help` owns the mechanics.
 
 ## 12. Self-update
 

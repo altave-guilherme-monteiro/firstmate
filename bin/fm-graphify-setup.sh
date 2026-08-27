@@ -9,9 +9,11 @@ Builds a local codebase-comprehension graph for a crewmate's worktree using
 graphify (https://github.com/Graphify-Labs/graphify): local tree-sitter AST
 parsing, no LLM call, nothing leaves the machine for the code graph itself.
 
-Called on-demand by a crewmate as an early setup step (bin/fm-brief.sh wires
-the instruction into the generated brief) rather than once per repo checkout
-during worktree provisioning, so no fm-spawn.sh backend has to learn about it
+Called on-demand by a crewmate as an early setup step rather than once per
+repo checkout during worktree provisioning. The capability is default-off:
+bin/fm-brief.sh wires the instruction into a generated scout or ship brief
+only when the home carries the config/codebase-graph presence flag, and this
+script is never run by spawn, teardown, or any other automatic path, so no fm-spawn.sh backend has to learn about it
 and a task that never calls this script is unaffected. Measured cost on
 firstmate's own ~437-file repo is a few seconds per run with no LLM cost; see
 docs/verification/ for the dated measurement. If a future repo's build cost

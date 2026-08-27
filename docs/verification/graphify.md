@@ -3,7 +3,7 @@
 Audience: maintainer verification.
 
 This record supports the guarantee that `graphify` (https://github.com/Graphify-Labs/graphify, package `graphifyy` 0.9.50) builds a real, queryable codebase graph for a crewmate worktree at low, measured cost, with no LLM call for the code graph itself.
-`bin/fm-graphify-setup.sh --help` owns the install and build mechanics, the `codebase-graph` skill owns the situational procedure, and `bin/fm-brief.sh` wires the setup step into every scout and ship scaffold (AGENTS.md section 11).
+`bin/fm-graphify-setup.sh --help` owns the install and build mechanics, the `codebase-graph` skill owns the situational procedure, and `bin/fm-brief.sh` wires the setup step into a generated scout or ship scaffold only when the home opts in with the `config/codebase-graph` presence flag (AGENTS.md sections 2 and 11); without that flag no brief mentions graphify and nothing runs it.
 
 ## Install and version
 

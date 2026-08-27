@@ -104,6 +104,17 @@ if [ -n "${FM_STATE_OVERRIDE:-}" ]; then
 else
   STATE="$FM_HOME/state"
 fi
+CODEBASE_GRAPH_LINE=""
+CODEBASE_GRAPH_STEP=""
+if [ -e "$FM_HOME/config/codebase-graph" ]; then
+  CODEBASE_GRAPH_LINE="
+Build this worktree's code graph before you start reading files: \`$FM_ROOT/bin/fm-graphify-setup.sh .\`; if that fails, note it and fall back to grep - nothing in this task depends on the graph. Then use \`graphify query \"<question>\"\`, \`graphify path A B\`, and \`graphify explain \"<node>\"\` to answer structural questions (what reaches this file, how does A connect to B) instead of grepping blind."
+  CODEBASE_GRAPH_STEP="
+%STEP%. Build this worktree's code graph: \`$FM_ROOT/bin/fm-graphify-setup.sh .\` (if it fails, note it and fall back to grep - nothing depends on the graph); then use \`graphify query \"<question>\"\`, \`graphify path A B\`, and \`graphify explain \"<node>\"\` to answer structural questions instead of grepping blind."
+fi
+codebase_graph_step() {
+  printf '%s' "${CODEBASE_GRAPH_STEP//%STEP%/$1}"
+}
 KIND=ship
 HERDR_LAB=0
 NO_PROJECTS=0
@@ -329,8 +340,7 @@ You are a crewmate: an autonomous worker agent managed by firstmate. Work on you
 $HERDR_SECTION
 
 # Setup
-You are in a disposable git worktree of $REPO, at a detached HEAD on a clean default branch.
-Build this worktree's code graph before you start reading files: \`$FM_ROOT/bin/fm-graphify-setup.sh .\`; if that fails, note it and fall back to grep - nothing in this task depends on the graph. Then use \`graphify query "<question>"\`, \`graphify path A B\`, and \`graphify explain "<node>"\` to answer structural questions (what reaches this file, how does A connect to B) instead of grepping blind.
+You are in a disposable git worktree of $REPO, at a detached HEAD on a clean default branch.$CODEBASE_GRAPH_LINE
 This is a SCOUT task: the deliverable is a written report, not a PR.
 The worktree is your laboratory - install, run, edit, and make scratch commits freely; all of it is discarded at teardown.
 The report is the only thing that survives, so anything worth keeping must be in it.
@@ -378,8 +388,7 @@ fi
 # explicit --mode before launching.
 case "$MODE" in
   direct-PR)
-    SETUP2="
-2. Build this worktree's code graph: \`$FM_ROOT/bin/fm-graphify-setup.sh .\` (if it fails, note it and fall back to grep - nothing depends on the graph); then use \`graphify query \"<question>\"\`, \`graphify path A B\`, and \`graphify explain \"<node>\"\` to answer structural questions instead of grepping blind."
+    SETUP2=$(codebase_graph_step 2)
     RULE1='1. Never push to the default branch (push only your `fm/'"$ID"'` branch). Never merge a PR.'
     IFS= read -r -d '' DOD <<EOF || true
 # Definition of done
@@ -391,8 +400,7 @@ Do NOT run /no-mistakes. The configured merge authority decides whether to merge
 EOF
     ;;
   local-only)
-    SETUP2="
-2. Build this worktree's code graph: \`$FM_ROOT/bin/fm-graphify-setup.sh .\` (if it fails, note it and fall back to grep - nothing depends on the graph); then use \`graphify query \"<question>\"\`, \`graphify path A B\`, and \`graphify explain \"<node>\"\` to answer structural questions instead of grepping blind."
+    SETUP2=$(codebase_graph_step 2)
     RULE1="1. Never push to any remote and never open a PR. Work only on your \`fm/$ID\` branch; firstmate handles the merge into local \`main\`."
     IFS= read -r -d '' DOD <<EOF || true
 # Definition of done
@@ -405,9 +413,13 @@ The configured merge authority approves the ready branch, then firstmate merges 
 EOF
     ;;
   *)  # no-mistakes
-    SETUP2="
-2. Build this worktree's code graph: \`$FM_ROOT/bin/fm-graphify-setup.sh .\` (if it fails, note it and fall back to grep - nothing depends on the graph); then use \`graphify query \"<question>\"\`, \`graphify path A B\`, and \`graphify explain \"<node>\"\` to answer structural questions instead of grepping blind.
+    if [ -n "$CODEBASE_GRAPH_STEP" ]; then
+      SETUP2="$(codebase_graph_step 2)
 3. Run \`no-mistakes doctor\`; if it reports the repo is not initialized here, run \`no-mistakes init\`."
+    else
+      SETUP2="
+2. Run \`no-mistakes doctor\`; if it reports the repo is not initialized here, run \`no-mistakes init\`."
+    fi
     RULE1='1. Never push to the default branch. Never merge a PR.'
     IFS= read -r -d '' DOD <<EOF || true
 # Definition of done

@@ -751,6 +751,42 @@ test_scout_and_secondmate_scaffold() {
   pass "fm-brief: scout and secondmate code paths still scaffold well-formed briefs"
 }
 
+test_codebase_graph_declaration_requires_opt_in() {
+  local brief
+  FM_HOME="$BRIEF_HOME" "$ROOT/bin/fm-brief.sh" brief-graph-off alpha --mode no-mistakes >/dev/null 2>&1 \
+    || fail "fm-brief.sh ship scaffold exited non-zero without the codebase-graph opt-in"
+  brief="$BRIEF_HOME/data/brief-graph-off/brief.md"
+  assert_present "$brief" "ship brief was not scaffolded"
+  if grep -q graphify "$brief"; then
+    fail "ship brief declared graphify without the config/codebase-graph opt-in"
+  fi
+  assert_grep "2. Run \`no-mistakes doctor\`" "$brief" \
+    "no-mistakes setup step must stay numbered 2 when the graph is not opted in"
+
+  FM_HOME="$BRIEF_HOME" "$ROOT/bin/fm-brief.sh" brief-graph-off-scout alpha --scout >/dev/null 2>&1 \
+    || fail "fm-brief.sh scout scaffold exited non-zero without the codebase-graph opt-in"
+  if grep -q graphify "$BRIEF_HOME/data/brief-graph-off-scout/brief.md"; then
+    fail "scout brief declared graphify without the config/codebase-graph opt-in"
+  fi
+
+  mkdir -p "$BRIEF_HOME/config"
+  : > "$BRIEF_HOME/config/codebase-graph"
+  FM_HOME="$BRIEF_HOME" "$ROOT/bin/fm-brief.sh" brief-graph-on alpha --mode no-mistakes >/dev/null 2>&1 \
+    || fail "fm-brief.sh ship scaffold exited non-zero with the codebase-graph opt-in"
+  brief="$BRIEF_HOME/data/brief-graph-on/brief.md"
+  assert_grep "fm-graphify-setup.sh" "$brief" \
+    "opted-in ship brief must declare the graph build"
+  assert_grep "3. Run \`no-mistakes doctor\`" "$brief" \
+    "no-mistakes setup step must renumber to 3 when the graph step is declared"
+
+  FM_HOME="$BRIEF_HOME" "$ROOT/bin/fm-brief.sh" brief-graph-on-scout alpha --scout >/dev/null 2>&1 \
+    || fail "fm-brief.sh scout scaffold exited non-zero with the codebase-graph opt-in"
+  assert_grep "fm-graphify-setup.sh" "$BRIEF_HOME/data/brief-graph-on-scout/brief.md" \
+    "opted-in scout brief must declare the graph build"
+  rm -f "$BRIEF_HOME/config/codebase-graph"
+  pass "fm-brief: graphify declaration appears only under the config/codebase-graph opt-in"
+}
+
 test_script_parses
 test_no_heredoc_in_command_substitution
 test_help_includes_entire_header
@@ -772,3 +808,4 @@ test_secondmate_directory_paths_are_absolute_and_output_is_stable
 test_pause_verb_override_renders_all_brief_scaffolds
 test_scout_and_secondmate_load_decision_hold_policy
 test_scout_and_secondmate_scaffold
+test_codebase_graph_declaration_requires_opt_in
