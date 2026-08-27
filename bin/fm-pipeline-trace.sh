@@ -83,10 +83,12 @@ run_block_status() {
   '
 }
 
-top_level_outcome() {
+run_outcome_value() {
   printf '%s\n' "$1" | awk '
-    /^outcome:/ {
-      sub(/^outcome:[[:space:]]*/, "")
+    /^run:[[:space:]]*$/ { in_run = 1; next }
+    in_run && /^[^[:space:]]/ { in_run = 0 }
+    /^outcome:/ || (in_run && /^[[:space:]]+outcome:/) {
+      sub(/^[[:space:]]*outcome:[[:space:]]*/, "")
       gsub(/"/, "")
       gsub(/[[:space:]]+$/, "")
       print tolower($0)
@@ -134,7 +136,7 @@ while [ "$(now_epoch)" -lt "$deadline" ] && [ "$run_done" -eq 0 ]; do
   done
 
   run_status=$(run_block_status "$status_out" || true)
-  run_outcome=$(top_level_outcome "$status_out" || true)
+  run_outcome=$(run_outcome_value "$status_out" || true)
 
   if [ -z "$rows" ] && [ -z "$run_status" ] && [ -z "$run_outcome" ]; then
     empty_polls=$(( empty_polls + 1 ))

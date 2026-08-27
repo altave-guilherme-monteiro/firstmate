@@ -235,6 +235,39 @@ grep -F 'phase:document ' "$FM_FAKE_OTEL_LOG" | grep -q -- '--status-code error'
   fail "a phase still non-terminal when the run is cancelled must close with an error span"
 pass "a cancelled run terminates the poller and closes active phases with error spans"
 
+NESTED_DIR="$TMP/nested-cancelled"
+mkdir -p "$NESTED_DIR/bin"
+cp "$POLLER_DIR/bin/otel-cli" "$NESTED_DIR/bin/otel-cli"
+cat > "$NESTED_DIR/bin/no-mistakes" <<'FAKE'
+#!/usr/bin/env bash
+n=$(cat "$FM_FAKE_NM_COUNTER" 2>/dev/null)
+[ -n "$n" ] || n=0
+printf '%s\n' "$(( n + 1 ))" > "$FM_FAKE_NM_COUNTER"
+echo "run:"
+echo '  id: "01RUN"'
+if [ "$n" -eq 0 ]; then
+  echo "  status: running"
+  echo "steps[1]{step,status}:"
+  echo "  document,running"
+else
+  echo "  outcome: cancelled"
+fi
+FAKE
+chmod +x "$NESTED_DIR/bin/no-mistakes" "$NESTED_DIR/bin/otel-cli"
+: > "$FM_FAKE_NM_COUNTER"
+: > "$FM_FAKE_OTEL_LOG"
+
+NESTED_START=$(date +%s)
+PATH="$NESTED_DIR/bin:$ORIG_PATH" OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:1 \
+  bash "$ROOT/bin/fm-pipeline-trace.sh" "$POLLER_DIR/task.meta" "$POLLER_DIR/state/effective" 1 600 ||
+  fail "fm-pipeline-trace.sh must exit 0 when the run reports a nested cancelled outcome"
+NESTED_ELAPSED=$(( $(date +%s) - NESTED_START ))
+[ "$NESTED_ELAPSED" -lt 60 ] ||
+  fail "a run: block outcome: cancelled must terminate the poller, took ${NESTED_ELAPSED}s"
+grep -F 'phase:document ' "$FM_FAKE_OTEL_LOG" | grep -q -- '--status-code error' ||
+  fail "a nested cancelled outcome must close active phases with error spans"
+pass "an indented outcome: cancelled inside the run: block terminates the poller and closes active phases"
+
 FALLBACK_DIR="$TMP/fallback"
 mkdir -p "$FALLBACK_DIR/bin"
 cp "$POLLER_DIR/bin/otel-cli" "$FALLBACK_DIR/bin/otel-cli"
