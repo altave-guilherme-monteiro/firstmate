@@ -1,18 +1,19 @@
 # Orca runtime backend
 
-Orca is an experimental macOS backend in which the Orca app owns both the task worktree and terminal endpoint.
+Orca is an experimental backend in which the Orca app owns both the task worktree and terminal endpoint.
 The crewmate harness remains the agent process launched inside that endpoint.
 Firstmate agents load [`firstmate-orca`](../.agents/skills/firstmate-orca/SKILL.md) before operating or recovering this backend.
 
 ## Setup
 
-Pick Orca when you already use the Orca macOS app and want Orca-managed worktrees and terminals instead of Treehouse plus a session multiplexer.
-Orca is macOS-only, explicit-only, and does not support secondmate spawns.
+Pick Orca when you already use the Orca app and want Orca-managed worktrees and terminals instead of Treehouse plus a session multiplexer.
+Orca itself ships desktop builds for macOS, Windows, and Linux plus an iOS/Android mobile companion for remote monitoring, per its own README as of 2026-08-27; the adapter below has only been exercised against the macOS app path.
+Orca is explicit-only and does not support secondmate spawns.
 
 Prerequisites:
 
-- `/Applications/Orca.app` installed, running, and ready.
-- The `orca` CLI, installed with `brew install orca`.
+- The Orca desktop app installed, running, and ready (`/Applications/Orca.app` on macOS; see [onorca.dev/download](https://onorca.dev/download) for the Windows and Linux builds, unexercised by Firstmate).
+- The `orca` CLI, installed with `brew install orca` on macOS or the equivalent package for the other platforms.
 - The universal harness and toolchain requirements in [`configuration.md`](configuration.md#toolchain).
 
 Select Orca with local `config/backend` containing `orca`, `FM_BACKEND=orca` for one launch, or an explicit request to Firstmate.
@@ -66,7 +67,8 @@ It never raw-deletes an Orca worktree.
 
 ## Active limits
 
-- Orca is macOS-only and explicit-only.
+- Orca is explicit-only.
+- Firstmate's own integration is verified against the macOS app only; the Windows and Linux desktop builds and the mobile companion app are unexercised here.
 - The app must be running and report ready.
 - Secondmate spawns are unsupported.
 - Escape is unsupported.

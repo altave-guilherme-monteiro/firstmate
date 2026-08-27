@@ -256,6 +256,25 @@ herdr 0.7.5
 ["pane.output_matched","pane.agent_status_changed","pane.scroll_changed"]
 ```
 
+### Linux host re-check
+
+All prior evidence in this section is from macOS.
+The core read-only probes were re-run on 2026-08-27 on `x86_64 GNU/Linux` (kernel 6.17.0), where this machine has no tmux installed and every task therefore already runs on Herdr, confirming the client-server handshake and basic status read work identically off macOS.
+
+```sh
+herdr --version
+herdr status --json | jq -c '{client:.client.protocol,server:.server.protocol}'
+```
+
+Observed:
+
+```text
+herdr 0.8.0
+{"client":19,"server":19}
+```
+
+This is a status-read smoke only; the pane lifecycle, submit-confirmation, and prune/respawn guarantees below remain verified on macOS only and were not re-exercised here.
+
 The CLI matrix was checked directly:
 
 | Guarantee | Command shape | Result |
@@ -691,6 +710,17 @@ tests/fm-bootstrap.test.sh
 
 The fake-Orca suite covers readiness, registration, create response parsing, metadata routing, popup-safe submit, and path-matched release refusal.
 
+### Platform support re-check
+
+The Orca app itself was re-checked against its own GitHub repository on 2026-08-27; this corrects the docs' prior "macOS-only" framing, which the app has outgrown, but is a documentation claim, not a Firstmate-side platform test.
+
+```sh
+gh api repos/stablyai/orca/readme -H "Accept: application/vnd.github.raw"
+```
+
+Observed: the README's supported-platforms badge reads `macOS | Windows | Linux`, and the Features section documents an iOS/Android "Mobile Companion" for remote monitoring and steering (App Store, TestFlight, and a direct Android APK link).
+No Firstmate machine used for this recheck had the Orca app installed on Windows or Linux, so the adapter's own compatibility with those builds remains unexercised; only the macOS-app path in this doc's Setup section has ever been run against a real `orca status --json`.
+
 ## cmux
 
 The current compatibility floor is cmux 0.64, and the active live evidence uses 0.64.17 build 97 on macOS aarch64.
@@ -746,6 +776,17 @@ tests/fm-backend-cmux-smoke.test.sh
 ```
 
 The real smoke proves socket access, fresh readiness, current-path probing, send and keys, bounded capture, title identity, and guarded exact cleanup.
+
+### Platform support re-check
+
+Re-checked against the upstream repository on 2026-08-27 to confirm the "macOS-only" framing still holds; it does.
+
+```sh
+gh api repos/manaflow-ai/cmux/readme -H "Accept: application/vnd.github.raw"
+```
+
+Observed: the README describes cmux as "A Ghostty-based macOS terminal" throughout, its only download artifact is a `.dmg`, and no Windows or Linux build is mentioned.
+The macOS-only, GUI-first claim in this doc is unchanged.
 
 ### Claude composer confirmation
 
