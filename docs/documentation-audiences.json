@@ -137,6 +137,10 @@
       "audience": "agent-runtime"
     },
     {
+      "path": ".agents/skills/codebase-graph/SKILL.md",
+      "audience": "agent-runtime"
+    },
+    {
       "path": ".agents/skills/decision-hold-lifecycle/SKILL.md",
       "audience": "agent-runtime"
     },
@@ -362,6 +366,10 @@
     },
     {
       "path": "docs/verification/dispatch-auth.md",
+      "audience": "maintainer-verification"
+    },
+    {
+      "path": "docs/verification/graphify.md",
       "audience": "maintainer-verification"
     },
     {
