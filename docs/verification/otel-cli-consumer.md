@@ -51,6 +51,9 @@ ok - a step observed completed before the run ends emits an ok span
 ok - phases still non-terminal at run termination close with the run outcome's status code
 ok - run termination reads the run: block's own status line, not any status: line in the blob
 ok - repeated unparseable axi status output bails the poller out well before max-runtime
+ok - a malformed FM_PIPELINE_TRACE_MAX_EMPTY_POLLS falls back to the default bound
+ok - fm_otel_span emits nothing when OTEL_EXPORTER_OTLP_ENDPOINT is unset
+ok - non-positive-integer poll-interval or max-runtime degrades to a silent no-op
 all fm-otel-cli-lib tests passed
 ```
 

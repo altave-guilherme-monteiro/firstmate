@@ -36,7 +36,9 @@ STEP_TERMINAL='completed|failed|cancelled|skipped'
 STEP_ERROR='failed|cancelled'
 RUN_TERMINAL_STATUS='completed'
 RUN_TERMINAL_OUTCOME='passed|failed'
-MAX_EMPTY_POLLS=${FM_PIPELINE_TRACE_MAX_EMPTY_POLLS:-5}
+DEFAULT_MAX_EMPTY_POLLS=5
+MAX_EMPTY_POLLS=${FM_PIPELINE_TRACE_MAX_EMPTY_POLLS:-$DEFAULT_MAX_EMPTY_POLLS}
+positive_integer "$MAX_EMPTY_POLLS" || MAX_EMPTY_POLLS=$DEFAULT_MAX_EMPTY_POLLS
 
 declare -A phase_state=()
 declare -A phase_since=()

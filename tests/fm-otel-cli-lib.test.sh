@@ -170,6 +170,15 @@ SILENT_ELAPSED=$(( $(date +%s) - SILENT_START ))
   fail "the poller must stop after a bounded number of empty status polls, polled $(cat "$FM_FAKE_NM_COUNTER") times"
 pass "repeated unparseable axi status output bails the poller out well before max-runtime"
 
+: > "$FM_FAKE_NM_COUNTER"
+PATH="$SILENT_DIR/bin:$ORIG_PATH" OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:1 \
+  FM_PIPELINE_TRACE_MAX_EMPTY_POLLS=not-a-number \
+  bash "$ROOT/bin/fm-pipeline-trace.sh" "$POLLER_DIR/task.meta" "$POLLER_DIR/state/effective" 1 600 ||
+  fail "a malformed FM_PIPELINE_TRACE_MAX_EMPTY_POLLS must not fail the poller"
+[ "$(cat "$FM_FAKE_NM_COUNTER")" -le 6 ] ||
+  fail "a malformed empty-poll bound must fall back to the default, polled $(cat "$FM_FAKE_NM_COUNTER") times"
+pass "a malformed FM_PIPELINE_TRACE_MAX_EMPTY_POLLS falls back to the default bound"
+
 GUARD_LOG="$POLLER_DIR/guard.log"
 : > "$GUARD_LOG"
 RC=0
