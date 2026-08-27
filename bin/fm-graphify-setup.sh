@@ -39,7 +39,9 @@ deliberately not touched). graphify-out/ is made self-ignoring with its own
 graphify-out/.gitignore, written before the build starts so an interrupted or
 failed build leaves nothing un-ignored. Coverage is checked with
 `git check-ignore`, not file existence, so a repo that already ships a partial
-.gitignore gets the missing entries appended rather than silently skipped. A
+.gitignore gets the missing entries appended rather than silently skipped. Every
+artifact family is probed, not just graph.json, so ignore rules that happen to
+cover the graph but not graphify's cache/ or .rebuild.lock still get the catch-all. A
 tracked ignore file is never edited: the build errors out instead, and the hook
 install is skipped, so no change of the crewmate's is ever touched. CLAUDE.md, which graphify appends its
 "## graphify" section to, is restored byte-for-byte on every exit path
@@ -104,7 +106,7 @@ IN_GIT_WORKTREE=false
 git -C "$DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1 && IN_GIT_WORKTREE=true
 
 if [ "$IN_GIT_WORKTREE" = true ]; then
-  ensure_self_ignoring "$DIR/graphify-out/.gitignore" 'graph.json=*' || {
+  ensure_self_ignoring "$DIR/graphify-out/.gitignore" 'graph.json=*' '.rebuild.lock=*' 'cache/entry=*' || {
     echo "error: graphify-out/ is not git-ignored and graphify-out/.gitignore is tracked in $DIR; ignore graphify-out/ yourself before building so the graph never reaches a PR" >&2
     exit 1
   }

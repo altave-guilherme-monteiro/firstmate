@@ -157,6 +157,18 @@ test_partial_preexisting_ignore_files_are_extended() {
   pass "fm-graphify-setup.sh: partial pre-existing ignore files gain the missing graphify entries"
 }
 
+test_partial_root_ignore_still_covers_every_artifact() {
+  local repo out
+  repo="$TMP_ROOT/partial-root-ignore"
+  new_repo "$repo"
+  printf '*.json\n' > "$repo/.gitignore"
+  commit_all "$repo"
+  out=$(run_setup "$repo" env) || fail "setup failed with a root .gitignore covering only *.json: $out"
+  assert_present "$repo/graphify-out/.rebuild.lock" "the build wrote no non-json artifact to check"
+  assert_worktree_clean "$repo" "graphify-out siblings stayed committable when only graph.json was pre-ignored"
+  pass "fm-graphify-setup.sh: pre-ignoring only graph.json still leaves the whole graphify-out ignored"
+}
+
 test_tracked_ignore_file_is_never_edited() {
   local repo out
   repo="$TMP_ROOT/tracked-ignore"
@@ -173,6 +185,7 @@ test_tracked_ignore_file_is_never_edited() {
 
 test_fresh_repo_leaves_no_committable_artifact
 test_partial_preexisting_ignore_files_are_extended
+test_partial_root_ignore_still_covers_every_artifact
 test_tracked_ignore_file_is_never_edited
 test_ignored_settings_json_is_still_committable_on_demand
 test_existing_settings_json_is_never_touched_or_hidden
