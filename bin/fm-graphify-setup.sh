@@ -41,12 +41,13 @@ failed build leaves nothing un-ignored. Coverage is checked with
 `git check-ignore`, not file existence, so a repo that already ships a partial
 .gitignore gets the missing entries appended rather than silently skipped. Every
 artifact family is probed, not just graph.json, so ignore rules that happen to
-cover the graph but not graphify's cache/ or .rebuild.lock still get the catch-all. A
-tracked ignore file is never edited: the build errors out instead, and the hook
-install is skipped, so no change of the crewmate's is ever touched. CLAUDE.md, which graphify appends its
-"## graphify" section to, is restored byte-for-byte on every exit path
-including failure, and deleted if graphify created it in a repo that had
-none, so fm-ensure-agents-md.sh's canonical pointer form survives.
+cover the graph but not graphify's cache/ or .rebuild.lock still get the
+catch-all. A tracked ignore file is never edited: the build errors out instead,
+and the hook install is skipped, so no change of the crewmate's is ever touched.
+CLAUDE.md, which graphify appends its "## graphify" section to, is restored
+byte-for-byte on every exit path - normal, failing, and an interrupting
+INT/TERM/HUP - and deleted if graphify created it in a repo that had none, so
+fm-ensure-agents-md.sh's canonical pointer form survives.
 
 The strict Claude Code hook is installed only when .claude/settings.json does
 not exist yet, so the file left behind is entirely graphify's and no content
@@ -79,7 +80,7 @@ DIR=$(cd "$DIR" && pwd -P)
 if ! command -v graphify >/dev/null 2>&1; then
   if command -v pipx >/dev/null 2>&1; then
     echo "graphify not found; installing with pipx..." >&2
-    pipx install graphifyy
+    pipx install graphifyy || true
     command -v graphify >/dev/null 2>&1 || { echo "error: graphify is installed but not on PATH; ensure pipx's bin dir (usually ~/.local/bin) is on PATH, e.g. run 'pipx ensurepath' and start a new shell" >&2; exit 1; }
   else
     echo "error: graphify not found and pipx is not installed; install pipx or graphify manually (see https://github.com/Graphify-Labs/graphify)" >&2
@@ -135,7 +136,10 @@ if [ -f "$DIR/CLAUDE.md" ]; then
   cp "$DIR/CLAUDE.md" "$CLAUDE_MD_BACKUP"
 fi
 
+CLAUDE_MD_RESTORED=false
 restore_claude_md() {
+  [ "$CLAUDE_MD_RESTORED" = true ] && return 0
+  CLAUDE_MD_RESTORED=true
   if [ -n "$CLAUDE_MD_BACKUP" ]; then
     cp "$CLAUDE_MD_BACKUP" "$DIR/CLAUDE.md"
     rm -f "$CLAUDE_MD_BACKUP"
@@ -144,7 +148,12 @@ restore_claude_md() {
   fi
   return 0
 }
+restore_claude_md_and_die() {
+  restore_claude_md
+  exit 130
+}
 trap restore_claude_md EXIT
+trap restore_claude_md_and_die INT TERM HUP
 
 ( cd "$DIR" && graphify claude install --strict )
 

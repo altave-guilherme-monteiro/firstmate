@@ -19,6 +19,7 @@ case "$1" in
     exit "${FM_STUB_UPDATE_EXIT:-0}"
     ;;
   claude)
+    [ -n "${FM_STUB_INSTALL_HANG:-}" ] && { printf '\n## graphify\n\nquery the graph first.\n' >> CLAUDE.md; touch "$FM_STUB_INSTALL_HANG"; sleep 30; exit 0; }
     mkdir -p .claude
     [ -f .claude/settings.json ] && cp .claude/settings.json .claude/settings.json.graphify-bak
     printf '{"hooks":{"PreToolUse":[]}}\n' > .claude/settings.json
@@ -101,6 +102,28 @@ test_existing_settings_json_is_never_touched_or_hidden() {
   assert_contains "$(git -C "$repo" status --short)" ".claude/settings.json" \
     "a later edit to settings.json is hidden from git status"
   pass "fm-graphify-setup.sh: an existing settings.json is left untouched and stays visible to git"
+}
+
+test_interrupted_install_still_restores_claude_md() {
+  local repo before after marker pid
+  repo="$TMP_ROOT/interrupted-install"
+  new_repo "$repo"
+  printf '@AGENTS.md\n' > "$repo/CLAUDE.md"
+  commit_all "$repo"
+  before=$(cksum < "$repo/CLAUDE.md")
+  marker="$TMP_ROOT/install-started"
+  rm -f "$marker"
+  PATH="$TMP_ROOT/stub-bin:$PATH" FM_STUB_INSTALL_HANG="$marker" \
+    "$ROOT/bin/fm-graphify-setup.sh" "$repo" >/dev/null 2>&1 &
+  pid=$!
+  for _ in $(seq 1 100); do [ -e "$marker" ] && break; sleep 0.1; done
+  [ -e "$marker" ] || fail "the hanging install stub never started"
+  kill -HUP "$pid"
+  wait "$pid" 2>/dev/null
+  after=$(cksum < "$repo/CLAUDE.md")
+  [ "$before" = "$after" ] || fail "CLAUDE.md was not restored after the setup was signalled mid-install"
+  assert_worktree_clean "$repo" "an interrupted install left committable artifacts behind"
+  pass "fm-graphify-setup.sh: a signal mid-install still restores CLAUDE.md"
 }
 
 test_failed_install_still_restores_claude_md() {
@@ -190,5 +213,6 @@ test_tracked_ignore_file_is_never_edited
 test_ignored_settings_json_is_still_committable_on_demand
 test_existing_settings_json_is_never_touched_or_hidden
 test_failed_install_still_restores_claude_md
+test_interrupted_install_still_restores_claude_md
 test_interrupted_build_leaves_nothing_committable
 test_non_git_directory_still_builds
