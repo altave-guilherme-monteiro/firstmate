@@ -74,7 +74,7 @@ printf '%s\n' "$*" >> "$FM_FAKE_OTEL_LOG"
 FAKE
 cat > "$POLLER_DIR/bin/no-mistakes" <<'FAKE'
 #!/usr/bin/env bash
-PHASES="intent rebase review test document lint push pr ci"
+PHASES="intent rebase review test lint push pr ci"
 n=0
 [ -f "$FM_FAKE_NM_COUNTER" ] && n=$(cat "$FM_FAKE_NM_COUNTER")
 printf '%s\n' "$(( n + 1 ))" > "$FM_FAKE_NM_COUNTER"
@@ -114,11 +114,15 @@ PATH="$POLLER_DIR/bin:$ORIG_PATH" OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:1
   bash "$ROOT/bin/fm-pipeline-trace.sh" "$POLLER_DIR/task.meta" "$POLLER_DIR/state/effective" 1 20 ||
   fail "fm-pipeline-trace.sh must exit 0 against a fake pipeline"
 
-for phase in intent rebase review test document lint push pr ci; do
+for phase in intent rebase review test lint push pr ci; do
   [ "$(grep -cF "phase:$phase " "$FM_FAKE_OTEL_LOG")" -eq 1 ] ||
-    fail "every pipeline phase must get exactly one span, got $(grep -cF "phase:$phase " "$FM_FAKE_OTEL_LOG") for $phase"
+    fail "every observed pipeline phase must get exactly one span, got $(grep -cF "phase:$phase " "$FM_FAKE_OTEL_LOG") for $phase"
 done
-pass "each of the nine pipeline phases gets exactly one span by the time the poller exits"
+pass "each pipeline phase observed in a steps table gets exactly one span by the time the poller exits"
+
+grep -qF 'phase:document ' "$FM_FAKE_OTEL_LOG" &&
+  fail "a phase that never appeared in any steps table must not get a fabricated span"
+pass "a phase never present in any steps row emits no span at all"
 
 INTENT_SPAN=$(grep -F 'phase:intent ' "$FM_FAKE_OTEL_LOG" | head -n1)
 INTENT_START=$(printf '%s\n' "$INTENT_SPAN" | sed -E 's/.*--start ([0-9]+).*/\1/')
@@ -131,7 +135,7 @@ printf '%s\n' "$INTENT_SPAN" | grep -q -- '--status-code ok' ||
   fail "a step observed completed must emit an ok span"
 pass "a step observed completed before the run ends emits an ok span"
 
-for phase in rebase review test document lint push pr ci; do
+for phase in rebase review test lint push pr ci; do
   grep -F "phase:$phase " "$FM_FAKE_OTEL_LOG" | grep -q -- '--status-code error' ||
     fail "a phase still non-terminal when the run ends failed must close with an error span ($phase)"
 done
@@ -140,5 +144,30 @@ pass "phases still non-terminal at run termination close with the run outcome's 
 [ "$(cat "$FM_FAKE_NM_COUNTER")" -ge 3 ] ||
   fail "a gate: block status must not be read as the run status and end the poll loop"
 pass "run termination reads the run: block's own status line, not any status: line in the blob"
+
+SILENT_DIR="$TMP/silent"
+mkdir -p "$SILENT_DIR/bin"
+cat > "$SILENT_DIR/bin/no-mistakes" <<'FAKE'
+#!/usr/bin/env bash
+n=0
+[ -f "$FM_FAKE_NM_COUNTER" ] && n=$(cat "$FM_FAKE_NM_COUNTER")
+printf '%s\n' "$(( n + 1 ))" > "$FM_FAKE_NM_COUNTER"
+echo "error: repo not initialized" >&2
+exit 1
+FAKE
+cp "$POLLER_DIR/bin/otel-cli" "$SILENT_DIR/bin/otel-cli"
+chmod +x "$SILENT_DIR/bin/no-mistakes" "$SILENT_DIR/bin/otel-cli"
+: > "$FM_FAKE_NM_COUNTER"
+
+SILENT_START=$(date +%s)
+PATH="$SILENT_DIR/bin:$ORIG_PATH" OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:1 \
+  bash "$ROOT/bin/fm-pipeline-trace.sh" "$POLLER_DIR/task.meta" "$POLLER_DIR/state/effective" 1 600 ||
+  fail "fm-pipeline-trace.sh must exit 0 when no-mistakes never reports a run"
+SILENT_ELAPSED=$(( $(date +%s) - SILENT_START ))
+[ "$SILENT_ELAPSED" -lt 60 ] ||
+  fail "the poller must bail out of an unreportable run instead of burning max-runtime, took ${SILENT_ELAPSED}s"
+[ "$(cat "$FM_FAKE_NM_COUNTER")" -le 6 ] ||
+  fail "the poller must stop after a bounded number of empty status polls, polled $(cat "$FM_FAKE_NM_COUNTER") times"
+pass "repeated unparseable axi status output bails the poller out well before max-runtime"
 
 echo "all fm-otel-cli-lib tests passed"

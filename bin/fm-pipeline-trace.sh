@@ -29,6 +29,7 @@ STEP_TERMINAL='completed|failed|cancelled|skipped'
 STEP_ERROR='failed|cancelled'
 RUN_TERMINAL_STATUS='completed'
 RUN_TERMINAL_OUTCOME='passed|failed'
+MAX_EMPTY_POLLS=${FM_PIPELINE_TRACE_MAX_EMPTY_POLLS:-5}
 
 declare -A phase_state=()
 declare -A phase_since=()
@@ -96,6 +97,7 @@ span_start_for() {
 
 deadline=$(( $(now_epoch) + MAX_RUNTIME ))
 run_done=0
+empty_polls=0
 
 while [ "$(now_epoch)" -lt "$deadline" ] && [ "$run_done" -eq 0 ]; do
   status_out=$(no-mistakes axi status 2>/dev/null || true)
@@ -123,6 +125,14 @@ while [ "$(now_epoch)" -lt "$deadline" ] && [ "$run_done" -eq 0 ]; do
 
   run_status=$(run_block_status "$status_out" || true)
   run_outcome=$(top_level_outcome "$status_out" || true)
+
+  if [ -z "$rows" ] && [ -z "$run_status" ] && [ -z "$run_outcome" ]; then
+    empty_polls=$(( empty_polls + 1 ))
+    [ "$empty_polls" -lt "$MAX_EMPTY_POLLS" ] || break
+  else
+    empty_polls=0
+  fi
+
   if printf '%s' "$run_status" | grep -qE "^($RUN_TERMINAL_STATUS)\$" ||
     printf '%s' "$run_outcome" | grep -qE "^($RUN_TERMINAL_OUTCOME)\$"; then
     run_done=1
@@ -130,9 +140,10 @@ while [ "$(now_epoch)" -lt "$deadline" ] && [ "$run_done" -eq 0 ]; do
     [ "$run_outcome" = failed ] && closing_status=error
     closing_end=$(now_epoch)
     for p in "${PHASES[@]}"; do
+      [ -n "${phase_since[$p]:-}" ] || continue
       printf '%s' "${phase_state[$p]:-}" | grep -qE "^($STEP_TERMINAL)\$" && continue
       fm_otel_span "$TRACEPARENT_VALUE" firstmate-pipeline "phase:$p" \
-        "${phase_since[$p]:-$closing_end}" "$closing_end" "$closing_status"
+        "${phase_since[$p]}" "$closing_end" "$closing_status"
       phase_state[$p]=completed
     done
   fi
