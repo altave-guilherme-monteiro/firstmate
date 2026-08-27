@@ -105,6 +105,10 @@
     {
       "source": "docs/trace-context.md",
       "target": "docs/verification/trace-context.md"
+    },
+    {
+      "source": "docs/otel-cli-consumer.md",
+      "target": "docs/verification/otel-cli-consumer.md"
     }
   ],
   "surfaces": [
@@ -349,6 +353,10 @@
       "audience": "maintainer-architecture"
     },
     {
+      "path": "docs/otel-cli-consumer.md",
+      "audience": "maintainer-architecture"
+    },
+    {
       "path": "docs/turnend-guard.md",
       "audience": "operator-current"
     },
@@ -382,6 +390,10 @@
     },
     {
       "path": "docs/verification/trace-context.md",
+      "audience": "maintainer-verification"
+    },
+    {
+      "path": "docs/verification/otel-cli-consumer.md",
       "audience": "maintainer-verification"
     },
     {

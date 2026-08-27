@@ -177,6 +177,7 @@ When launching a Secondmate, the primary copies the presence flag into its home 
 A Secondmate on a remote route is covered the same way: the primary resolves and records that task's carrier, and the configured host exports it and receives the same enablement snapshot.
 The presence flag is session-scoped enablement, so it transfers at launch and is left unchanged by live convergence into a running home.
 See [`trace-context.md`](trace-context.md) for carrier semantics, supported routes, the manual fleet-restart requirement, the session boundary, and safety limits; `bin/fm-trace-context-lib.sh`'s header owns the exact mechanics, and [`verification/trace-context.md`](verification/trace-context.md) records repeatable evidence.
+The same flag also gates the optional `otel-cli` consumer that turns the carrier into real spans; see [`otel-cli-consumer.md`](otel-cli-consumer.md) for that contract.
 
 ## Gate defaults (.no-mistakes.yaml)
 

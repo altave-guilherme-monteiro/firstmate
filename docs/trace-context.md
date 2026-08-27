@@ -81,7 +81,7 @@ This is a deliberate, source-owned choice:
   Recovery reuses the task's recorded carrier byte-for-byte, flags included, so a task's sampling decision is stable across restarts.
   Firstmate chooses the flag only when it mints a *root*, which is the only way a new carrier is created.
 - **Cost and privacy consequence.**
-  `01` records a sampling *decision*, and a conforming downstream parent-based sampler will honor it - but it does not by itself guarantee that any collector stores a span, and Firstmate emits no spans of its own; it only sets the flag on the carrier.
+  `01` records a sampling *decision*, and a conforming downstream parent-based sampler will honor it - but it does not by itself guarantee that any collector stores a span, and Firstmate's own process emits no spans; it only sets the flag on the carrier, which the optional consumer in [`otel-cli-consumer.md`](otel-cli-consumer.md) can turn into real spans.
   An operator who enables the capability and points sampling-respecting instrumentation at it should expect on the order of one trace per task to be recorded, at whatever cardinality and retention that instrumentation is configured for.
   An operator who wants unsampled roots or head-sampling owns that downstream or via a later, explicitly-scoped option; Firstmate does not embed a sampler.
 
@@ -108,9 +108,9 @@ This is a deliberate, source-owned choice:
 
 ## Relationship to OpenTelemetry and later increments
 
-Firstmate learns nothing about OpenTelemetry, any exporter, collector, storage, or UI.
-It emits a standard W3C carrier and records the same identity; a downstream observer owns everything else and discovers active propagation from the home session's frozen decision or the `traceparent=` field.
-Native lifecycle-event emission, extra stable IDs, intake metadata, and any embedded OTLP are deliberately deferred until a running observer demonstrates a concrete fidelity gap that the derived artifacts cannot cover.
+Firstmate itself learns nothing about OpenTelemetry, any exporter, collector, storage, or UI: it emits a standard W3C carrier and records the same identity, and a downstream observer owns everything else, discovering active propagation from the home session's frozen decision or the `traceparent=` field.
+[`otel-cli-consumer.md`](otel-cli-consumer.md) is the first such observer: an optional, same-flag-gated `otel-cli` wrapper that turns this carrier plus a `no-mistakes` pipeline run into real OTLP spans.
+Extra stable IDs, intake metadata, and any embedded OTLP inside firstmate's own process remain deliberately deferred until a running observer demonstrates a concrete fidelity gap the derived artifacts cannot cover.
 
 ## Verification
 
