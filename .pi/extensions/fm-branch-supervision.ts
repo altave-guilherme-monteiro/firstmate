@@ -645,6 +645,10 @@ export default function (pi: ExtensionAPI) {
     // A captain outcome the captain has already been given is delivered as the
     // ordinary rendered note instead: still appended, still visible in Pi, but
     // no second model turn is spent re-reporting what main already said.
+    // The marker owner retains only the latest published PR per task, so a
+    // second publication can displace a delayed first outcome and still open a
+    // turn. This residual is accepted: M1 keeps that turn quiet, while closing
+    // it would require a new durable identity record this change does not add.
     const downgraded = verdict === "captain" && mainAlreadyReportedMerge(summary);
     if (verdict === "captain" && !downgraded) {
       const message = {

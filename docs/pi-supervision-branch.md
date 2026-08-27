@@ -65,6 +65,7 @@ Main can read the durable outcome store on demand through its `fm_branch_outcome
 One case is closed at its source rather than left to that judgment.
 A merge reaches this home on two independent paths by design - main's own permanently main-owned merge poll, and the branch's task-local status wake - and main's text only reaches the branch's mirror at main's turn end, so the branch can escalate before it could see the captain was already told.
 When a `captain` outcome names a merge this home already published to its supervision destination, `bin/fm-pr-merge-notified.sh` says so from `bin/fm-pr-lib.sh`'s canonical merge-notification marker, and the outcome is delivered as the ordinary rendered note instead of opening a follow-up turn.
+That marker retains only each task's latest published merge, so a delayed earlier outcome can still open a quiet follow-up turn after a second publication; this residual is accepted because closing it would require a new durable published-identity record this change deliberately does not add.
 The outcome is still appended, still visible, and still recorded in the store with the verdict the branch decided; only the second captain-facing turn is dropped.
 An unreadable answer relays the outcome, because a duplicate announces itself and a lost outcome does not.
 

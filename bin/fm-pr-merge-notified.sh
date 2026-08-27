@@ -8,6 +8,8 @@
 # bin/fm-pr-lib.sh owns. bin/fm-merge-outcome-lib.sh commits one of those
 # markers whenever a merge is published to this home's supervision destination,
 # so a matching marker is proof the merge already reached that destination.
+# Each task's marker reflects only its most recently published merge, not every
+# merge that task has ever published.
 #
 # The question is home-wide rather than task-scoped: a home has exactly one
 # supervision destination, so any task's marker carrying that exact canonical
