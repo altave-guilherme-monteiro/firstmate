@@ -77,16 +77,24 @@ cat > "$POLLER_DIR/bin/no-mistakes" <<'FAKE'
 n=0
 [ -f "$FM_FAKE_NM_COUNTER" ] && n=$(cat "$FM_FAKE_NM_COUNTER")
 printf '%s\n' "$(( n + 1 ))" > "$FM_FAKE_NM_COUNTER"
-echo "task: make the review outcome failed for a cancelled ci run"
-echo "log: /tmp/run/review-failed.log"
-echo "steps[9]{name,state}:"
+echo "run:"
+echo '  id: "01RUN"'
+echo "  branch: fm/review-failed-outcome-cancelled-ci"
 if [ "$n" -eq 0 ]; then
-  echo "  intent,running"
-  echo "  review,pending"
+  echo "  status: running"
+  echo "  findings: none"
+  echo "  steps[3]{step,status,findings,duration_ms}:"
+  echo "    intent,running,0,0"
+  echo "    review,pending,0,0"
+  echo "    test,pending,0,0"
 else
-  echo "  intent,passed"
-  echo "  review,failed"
-  echo "outcome: checks green"
+  echo "  status: completed"
+  echo "  findings: none"
+  echo "  steps[3]{step,status,findings,duration_ms}:"
+  echo "    intent,completed,0,42000"
+  echo "    review,failed,1,0"
+  echo "    test,pending,0,0"
+  echo "outcome: failed"
 fi
 FAKE
 chmod +x "$POLLER_DIR/bin/otel-cli" "$POLLER_DIR/bin/no-mistakes"
@@ -100,16 +108,27 @@ PATH="$POLLER_DIR/bin:$ORIG_PATH" OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:1
   bash "$ROOT/bin/fm-pipeline-trace.sh" "$POLLER_DIR/task.meta" "$POLLER_DIR/state/effective" 1 20 ||
   fail "fm-pipeline-trace.sh must exit 0 against a fake pipeline"
 
-grep -q 'phase:intent' "$FM_FAKE_OTEL_LOG" ||
-  fail "the poller must emit a span for intent once its steps row reaches a terminal state"
-pass "the poller emits a phase span from the steps table row, not from free text in the status header"
+INTENT_SPAN=$(grep -F 'phase:intent' "$FM_FAKE_OTEL_LOG" | head -n1 || true)
+[ -n "$INTENT_SPAN" ] ||
+  fail "the poller must emit a span for a step that reaches completed in the real steps table"
+pass "the poller emits a phase span from a real steps[N]{step,status,findings,duration_ms} row"
 
-grep -q -- '--status-code error' "$FM_FAKE_OTEL_LOG" ||
+INTENT_START=$(printf '%s\n' "$INTENT_SPAN" | sed -E 's/.*--start ([0-9]+).*/\1/')
+INTENT_END=$(printf '%s\n' "$INTENT_SPAN" | sed -E 's/.*--end ([0-9]+).*/\1/')
+[ "$(( INTENT_END - INTENT_START ))" -eq 42 ] ||
+  fail "a completed step's span must span its reported duration_ms (42000ms), got $(( INTENT_END - INTENT_START ))s"
+pass "a completed step's span duration comes from the row's duration_ms field"
+
+grep -F 'phase:review' "$FM_FAKE_OTEL_LOG" | grep -q -- '--status-code error' ||
   fail "a failed step must emit a span with error status"
 pass "a failed step's span carries an error status code"
 
+grep -qF 'phase:test' "$FM_FAKE_OTEL_LOG" &&
+  fail "a step still pending must not emit a span"
+pass "a non-terminal step emits no span"
+
 [ "$(cat "$FM_FAKE_NM_COUNTER")" -ge 2 ] ||
-  fail "free text naming a failed/cancelled phase must not end the poll loop on the first iteration"
-pass "run termination follows the run-level outcome line, not any status text mentioning failure"
+  fail "free text naming a failed phase must not end the poll loop on the first iteration"
+pass "run termination follows the run-level status/outcome lines, not free text"
 
 echo "all fm-otel-cli-lib tests passed"

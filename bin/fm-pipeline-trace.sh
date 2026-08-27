@@ -25,9 +25,10 @@ TRACEPARENT_VALUE=$(fm_trace_context_recorded "$META_FILE")
 fm_trace_context_valid "$TRACEPARENT_VALUE" || exit 0
 
 PHASES=(intent rebase review test document lint push pr ci)
-STATES='passed|failed|skipped|cancelled|checks-passed|running|pending|queued|blocked'
-TERMINAL='passed|failed|skipped|cancelled|checks-passed'
-RUN_TERMINAL='done|failed|cancelled|checks-ready|checks green|checks-passed|passed'
+STEP_TERMINAL='completed|failed|cancelled|skipped'
+STEP_ERROR='failed|cancelled'
+RUN_TERMINAL_STATUS='completed'
+RUN_TERMINAL_OUTCOME='passed|failed'
 
 declare -A phase_state=()
 declare -A phase_since=()
@@ -35,21 +36,31 @@ now_epoch() { date +%s; }
 
 steps_rows() {
   printf '%s\n' "$1" | awk '
-    /^[[:space:]]*steps\[[0-9]+\]\{name,state\}:[[:space:]]*$/ { in_steps = 1; next }
-    in_steps && /^[[:space:]]+[A-Za-z0-9_-]+,[A-Za-z0-9_-]+[[:space:]]*$/ { print; next }
-    in_steps { in_steps = 0 }
+    /^[[:space:]]*steps\[[0-9]+\]\{step,status,findings,duration_ms\}:[[:space:]]*$/ { in_steps = 1; next }
+    in_steps {
+      if ($0 !~ /^[[:space:]]+[^,]+,[^,]+,[^,]*,[^,]*[[:space:]]*$/) { in_steps = 0; next }
+      row = $0
+      gsub(/[[:space:]]/, "", row)
+      gsub(/"/, "", row)
+      if (split(row, f, ",") >= 4) print f[1], f[2], f[4]
+    }
   '
 }
 
-run_outcome() {
-  printf '%s\n' "$1" | grep -iE '^[[:space:]]*(outcome|status):' | head -n1 |
-    sed -E 's/^[[:space:]]*[A-Za-z]+:[[:space:]]*//; s/[[:space:]]*$//' || true
+first_field_after_key() {
+  printf '%s\n' "$1" | grep -iE "^[[:space:]]*$2:[[:space:]]*" | head -n1 |
+    sed -E "s/^[[:space:]]*[A-Za-z_]+:[[:space:]]*//; s/\"//g; s/[[:space:]]*\$//" | tr '[:upper:]' '[:lower:]' || true
 }
 
-for p in "${PHASES[@]}"; do
-  phase_state[$p]=unseen
-  phase_since[$p]=$(now_epoch)
-done
+span_start_for() {
+  local end=$1 duration_ms=$2 fallback=$3 seconds
+  case "$duration_ms" in
+    ''|*[!0-9]*) printf '%s' "$fallback"; return 0 ;;
+  esac
+  seconds=$(( duration_ms / 1000 ))
+  [ "$seconds" -gt 0 ] || { printf '%s' "$fallback"; return 0; }
+  printf '%s' "$(( end - seconds ))"
+}
 
 deadline=$(( $(now_epoch) + MAX_RUNTIME ))
 run_done=0
@@ -59,25 +70,29 @@ while [ "$(now_epoch)" -lt "$deadline" ] && [ "$run_done" -eq 0 ]; do
   rows=$(steps_rows "$status_out" || true)
 
   for p in "${PHASES[@]}"; do
-    row=$(printf '%s\n' "$rows" | grep -iE "^[[:space:]]+$p," | head -n1 || true)
+    row=$(printf '%s\n' "$rows" | awk -v phase="$p" '$1 == phase { print; exit }' || true)
     [ -n "$row" ] || continue
-    state=$(printf '%s' "$row" | sed -E 's/^[[:space:]]+[^,]+,[[:space:]]*//; s/[[:space:]]*$//' | tr '[:upper:]' '[:lower:]')
-    printf '%s' "$state" | grep -qE "^($STATES)\$" || continue
-    if [ "$state" != "${phase_state[$p]}" ]; then
-      if printf '%s' "${phase_state[$p]}" | grep -qE "^($TERMINAL)\$"; then
-        :
-      elif printf '%s' "$state" | grep -qE "^($TERMINAL)\$"; then
-        span_status=ok
-        printf '%s' "$state" | grep -qE '^(failed|cancelled)$' && span_status=error
-        fm_otel_span "$TRACEPARENT_VALUE" firstmate-pipeline "phase:$p" "${phase_since[$p]}" "$(now_epoch)" "$span_status"
-      fi
-      phase_state[$p]=$state
-      phase_since[$p]=$(now_epoch)
+    state=$(printf '%s' "$row" | awk '{print $2}')
+    duration_ms=$(printf '%s' "$row" | awk '{print $3}')
+    printf '%s' "$state" | grep -qE '^[a-z_][a-z0-9_-]*$' || continue
+    [ -n "${phase_since[$p]:-}" ] || phase_since[$p]=$(now_epoch)
+    [ "$state" != "${phase_state[$p]:-}" ] || continue
+    if ! printf '%s' "${phase_state[$p]:-}" | grep -qE "^($STEP_TERMINAL)\$" &&
+      printf '%s' "$state" | grep -qE "^($STEP_TERMINAL)\$"; then
+      span_status=ok
+      printf '%s' "$state" | grep -qE "^($STEP_ERROR)\$" && span_status=error
+      span_end=$(now_epoch)
+      span_begin=$(span_start_for "$span_end" "$duration_ms" "${phase_since[$p]}")
+      fm_otel_span "$TRACEPARENT_VALUE" firstmate-pipeline "phase:$p" "$span_begin" "$span_end" "$span_status"
     fi
+    phase_state[$p]=$state
+    phase_since[$p]=$(now_epoch)
   done
 
-  outcome=$(run_outcome "$status_out" || true)
-  if [ -n "$outcome" ] && printf '%s' "$outcome" | tr '[:upper:]' '[:lower:]' | grep -qE "^($RUN_TERMINAL)\$"; then
+  run_status=$(first_field_after_key "$status_out" status)
+  run_outcome=$(first_field_after_key "$status_out" outcome)
+  if printf '%s' "$run_status" | grep -qE "^($RUN_TERMINAL_STATUS)\$" ||
+    printf '%s' "$run_outcome" | grep -qE "^($RUN_TERMINAL_OUTCOME)\$"; then
     run_done=1
   fi
 
