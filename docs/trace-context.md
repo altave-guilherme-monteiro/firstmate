@@ -108,9 +108,9 @@ This is a deliberate, source-owned choice:
 
 ## Relationship to OpenTelemetry and later increments
 
-Firstmate learns nothing about OpenTelemetry, any exporter, collector, storage, or UI.
-It emits a standard W3C carrier and records the same identity; a downstream observer owns everything else and discovers active propagation from the home session's frozen decision or the `traceparent=` field.
-Native lifecycle-event emission, extra stable IDs, intake metadata, and any embedded OTLP are deliberately deferred until a running observer demonstrates a concrete fidelity gap that the derived artifacts cannot cover.
+Firstmate itself learns nothing about OpenTelemetry, any exporter, collector, storage, or UI: it emits a standard W3C carrier and records the same identity, and a downstream observer owns everything else, discovering active propagation from the home session's frozen decision or the `traceparent=` field.
+[`otel-cli-consumer.md`](otel-cli-consumer.md) is the first such observer: an optional, same-flag-gated `otel-cli` wrapper that turns this carrier plus a `no-mistakes` pipeline run into real OTLP spans.
+Extra stable IDs, intake metadata, and any embedded OTLP inside firstmate's own process remain deliberately deferred until a running observer demonstrates a concrete fidelity gap the derived artifacts cannot cover.
 
 ## Verification
 
