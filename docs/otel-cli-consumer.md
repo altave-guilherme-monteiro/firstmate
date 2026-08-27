@@ -29,9 +29,9 @@ A home with trace-context off behaves exactly as it does today, because none of 
 - `fm_otel_span <traceparent> <service> <name> <start-epoch> <end-epoch> [status-code]` - emits one span, parented under `<traceparent>`, covering `[start, end)`, via a single `otel-cli span` call bounded by `FM_OTEL_CLI_TIMEOUT` (default 3s), and always returns 0.
 
 `bin/fm-pipeline-trace.sh <meta-file> <effective-state-file> [poll-interval-seconds] [max-runtime-seconds]` drives the `no-mistakes` pipeline phase wrapping.
-It resolves the task's recorded carrier from `<meta-file>` (the same `traceparent=` line `trace-context.md` documents), exits immediately as a no-op when emission is not enabled, and otherwise polls `no-mistakes axi status` at `<poll-interval-seconds>` (default 5) for the run's per-step status, read from the `steps[N]{step,status,findings,duration_ms}:` table, across the nine pipeline steps `no-mistakes axi logs --help` enumerates: `intent, rebase, review, test, document, lint, push, pr, ci`.
+It resolves the task's recorded carrier from `<meta-file>` (the same `traceparent=` line `trace-context.md` documents), exits immediately as a no-op when emission is not enabled, and otherwise polls `no-mistakes axi status` at `<poll-interval-seconds>` (default 5) for the run's per-step status, read from the `steps[N]{step,status,...}:` table (whose trailing columns vary between `duration_ms` and `summary`; only the leading `step,status` pair is required), across the nine pipeline steps `no-mistakes axi logs --help` enumerates: `intent, rebase, review, test, document, lint, push, pr, ci`.
 On each step's first observed transition into a terminal status (`completed`, or `failed` / `cancelled` / `skipped`, the last two of which are emitted with an `error` status code), it emits one span named `phase:<step>`, parented directly under the task's root carrier - so every phase span is a sibling child of the same firstmate-minted identity, and an observer sees the whole run as one stitched trace.
-The poller exits once the run-level `status:` line reads `completed` or an `outcome:` line reads `passed` or `failed`, or after `<max-runtime-seconds>` (default 3600) as a safety bound against a wedged pipeline leaving the poller running forever.
+The poller exits once the `run:` block's own `status:` line reads `completed` or a top-level `outcome:` line reads `passed` or `failed`; on that closing poll every step not already seen terminal gets its span emitted with the run outcome's status code, since the terminal status output carries no steps table, so all nine phases always have exactly one span by the time the poller exits. It exits or after `<max-runtime-seconds>` (default 3600) as a safety bound against a wedged pipeline leaving the poller running forever.
 
 ### Usage
 
@@ -48,7 +48,7 @@ Manual launch is the intended delivery for this increment: `no-mistakes` exposes
 ### Timing precision
 
 The primary timing source is the pipeline's own `duration_ms` column: when a step is first seen terminal with a non-zero `duration_ms`, its span ends at that observation and starts `duration_ms` earlier, so the span length is the pipeline's own measurement rather than an observation artifact.
-Only the transition detection itself is poll-bounded: the span's placement on the wall clock can be late by up to one poll interval, and when `duration_ms` is absent or zero the span falls back to the interval since the step was first observed.
+Only the transition detection itself is poll-bounded: the span's placement on the wall clock can be late by up to one poll interval, and when the `duration_ms` column is absent from the header, or its value is zero - including every span closed at run termination - the span falls back to the interval since the step was first observed.
 A step already terminal before the poller's first poll still gets a span from its reported `duration_ms`; without one, its fallback start is that first observation, so it is not timed precisely.
 
 ## Safety

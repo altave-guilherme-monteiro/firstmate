@@ -36,20 +36,52 @@ now_epoch() { date +%s; }
 
 steps_rows() {
   printf '%s\n' "$1" | awk '
-    /^[[:space:]]*steps\[[0-9]+\]\{step,status,findings,duration_ms\}:[[:space:]]*$/ { in_steps = 1; next }
+    match($0, /^[[:space:]]*steps\[[0-9]+\]\{step,status[^}]*\}:[[:space:]]*$/) {
+      header = $0
+      sub(/^[^{]*\{/, "", header)
+      sub(/\}.*$/, "", header)
+      duration_col = 0
+      cols = split(header, h, ",")
+      for (i = 1; i <= cols; i++) if (h[i] == "duration_ms") duration_col = i
+      in_steps = 1
+      next
+    }
     in_steps {
-      if ($0 !~ /^[[:space:]]+[^,]+,[^,]+,[^,]*,[^,]*[[:space:]]*$/) { in_steps = 0; next }
+      if ($0 !~ /^[[:space:]]+[A-Za-z0-9_-]+,[[:space:]]*"?[A-Za-z0-9_-]+"?[[:space:]]*(,|$)/) { in_steps = 0; next }
       row = $0
-      gsub(/[[:space:]]/, "", row)
       gsub(/"/, "", row)
-      if (split(row, f, ",") >= 4) print f[1], f[2], f[4]
+      n = split(row, f, ",")
+      for (i = 1; i <= n; i++) gsub(/^[[:space:]]+|[[:space:]]+$/, "", f[i])
+      duration = (duration_col > 0 && duration_col <= n) ? f[duration_col] : "-"
+      print f[1], f[2], duration
     }
   '
 }
 
-first_field_after_key() {
-  printf '%s\n' "$1" | grep -iE "^[[:space:]]*$2:[[:space:]]*" | head -n1 |
-    sed -E "s/^[[:space:]]*[A-Za-z_]+:[[:space:]]*//; s/\"//g; s/[[:space:]]*\$//" | tr '[:upper:]' '[:lower:]' || true
+run_block_status() {
+  printf '%s\n' "$1" | awk '
+    /^run:[[:space:]]*$/ { in_run = 1; next }
+    in_run && /^[^[:space:]]/ { in_run = 0 }
+    in_run && /^[[:space:]]+status:/ {
+      sub(/^[[:space:]]*status:[[:space:]]*/, "")
+      gsub(/"/, "")
+      gsub(/[[:space:]]+$/, "")
+      print tolower($0)
+      exit
+    }
+  '
+}
+
+top_level_outcome() {
+  printf '%s\n' "$1" | awk '
+    /^outcome:/ {
+      sub(/^outcome:[[:space:]]*/, "")
+      gsub(/"/, "")
+      gsub(/[[:space:]]+$/, "")
+      print tolower($0)
+      exit
+    }
+  '
 }
 
 span_start_for() {
@@ -89,11 +121,20 @@ while [ "$(now_epoch)" -lt "$deadline" ] && [ "$run_done" -eq 0 ]; do
     phase_since[$p]=$(now_epoch)
   done
 
-  run_status=$(first_field_after_key "$status_out" status)
-  run_outcome=$(first_field_after_key "$status_out" outcome)
+  run_status=$(run_block_status "$status_out" || true)
+  run_outcome=$(top_level_outcome "$status_out" || true)
   if printf '%s' "$run_status" | grep -qE "^($RUN_TERMINAL_STATUS)\$" ||
     printf '%s' "$run_outcome" | grep -qE "^($RUN_TERMINAL_OUTCOME)\$"; then
     run_done=1
+    closing_status=ok
+    [ "$run_outcome" = failed ] && closing_status=error
+    closing_end=$(now_epoch)
+    for p in "${PHASES[@]}"; do
+      printf '%s' "${phase_state[$p]:-}" | grep -qE "^($STEP_TERMINAL)\$" && continue
+      fm_otel_span "$TRACEPARENT_VALUE" firstmate-pipeline "phase:$p" \
+        "${phase_since[$p]:-$closing_end}" "$closing_end" "$closing_status"
+      phase_state[$p]=completed
+    done
   fi
 
   [ "$run_done" -eq 1 ] || sleep "$POLL_INTERVAL"

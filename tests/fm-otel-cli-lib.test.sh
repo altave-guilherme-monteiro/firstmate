@@ -74,27 +74,33 @@ printf '%s\n' "$*" >> "$FM_FAKE_OTEL_LOG"
 FAKE
 cat > "$POLLER_DIR/bin/no-mistakes" <<'FAKE'
 #!/usr/bin/env bash
+PHASES="intent rebase review test document lint push pr ci"
 n=0
 [ -f "$FM_FAKE_NM_COUNTER" ] && n=$(cat "$FM_FAKE_NM_COUNTER")
 printf '%s\n' "$(( n + 1 ))" > "$FM_FAKE_NM_COUNTER"
-echo "run:"
-echo '  id: "01RUN"'
-echo "  branch: fm/review-failed-outcome-cancelled-ci"
-if [ "$n" -eq 0 ]; then
-  echo "  status: running"
-  echo "  findings: none"
-  echo "  steps[3]{step,status,findings,duration_ms}:"
-  echo "    intent,running,0,0"
-  echo "    review,pending,0,0"
-  echo "    test,pending,0,0"
-else
+if [ "$n" -ge 2 ]; then
+  echo "run:"
+  echo '  id: "01RUN"'
   echo "  status: completed"
   echo "  findings: none"
-  echo "  steps[3]{step,status,findings,duration_ms}:"
-  echo "    intent,completed,0,42000"
-  echo "    review,failed,1,0"
-  echo "    test,pending,0,0"
   echo "outcome: failed"
+  exit 0
+fi
+echo "gate:"
+echo "  step: review"
+echo "  status: completed"
+echo "run:"
+echo '  id: "01RUN"'
+echo "  status: running"
+echo "  findings: none"
+if [ "$n" -eq 0 ]; then
+  echo "steps[9]{step,status,findings,summary}:"
+  for p in $PHASES; do echo "  $p,running,0,\"agent under way\""; done
+else
+  echo "steps[9]{step,status,findings,duration_ms}:"
+  for p in $PHASES; do
+    if [ "$p" = intent ]; then echo "  intent,completed,0,42000"; else echo "  $p,running,0,0"; fi
+  done
 fi
 FAKE
 chmod +x "$POLLER_DIR/bin/otel-cli" "$POLLER_DIR/bin/no-mistakes"
@@ -108,27 +114,31 @@ PATH="$POLLER_DIR/bin:$ORIG_PATH" OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:1
   bash "$ROOT/bin/fm-pipeline-trace.sh" "$POLLER_DIR/task.meta" "$POLLER_DIR/state/effective" 1 20 ||
   fail "fm-pipeline-trace.sh must exit 0 against a fake pipeline"
 
-INTENT_SPAN=$(grep -F 'phase:intent' "$FM_FAKE_OTEL_LOG" | head -n1 || true)
-[ -n "$INTENT_SPAN" ] ||
-  fail "the poller must emit a span for a step that reaches completed in the real steps table"
-pass "the poller emits a phase span from a real steps[N]{step,status,findings,duration_ms} row"
+for phase in intent rebase review test document lint push pr ci; do
+  [ "$(grep -cF "phase:$phase " "$FM_FAKE_OTEL_LOG")" -eq 1 ] ||
+    fail "every pipeline phase must get exactly one span, got $(grep -cF "phase:$phase " "$FM_FAKE_OTEL_LOG") for $phase"
+done
+pass "each of the nine pipeline phases gets exactly one span by the time the poller exits"
 
+INTENT_SPAN=$(grep -F 'phase:intent ' "$FM_FAKE_OTEL_LOG" | head -n1)
 INTENT_START=$(printf '%s\n' "$INTENT_SPAN" | sed -E 's/.*--start ([0-9]+).*/\1/')
 INTENT_END=$(printf '%s\n' "$INTENT_SPAN" | sed -E 's/.*--end ([0-9]+).*/\1/')
 [ "$(( INTENT_END - INTENT_START ))" -eq 42 ] ||
   fail "a completed step's span must span its reported duration_ms (42000ms), got $(( INTENT_END - INTENT_START ))s"
-pass "a completed step's span duration comes from the row's duration_ms field"
+pass "a completed step's span duration comes from the row's duration_ms column"
 
-grep -F 'phase:review' "$FM_FAKE_OTEL_LOG" | grep -q -- '--status-code error' ||
-  fail "a failed step must emit a span with error status"
-pass "a failed step's span carries an error status code"
+printf '%s\n' "$INTENT_SPAN" | grep -q -- '--status-code ok' ||
+  fail "a step observed completed must emit an ok span"
+pass "a step observed completed before the run ends emits an ok span"
 
-grep -qF 'phase:test' "$FM_FAKE_OTEL_LOG" &&
-  fail "a step still pending must not emit a span"
-pass "a non-terminal step emits no span"
+for phase in rebase review test document lint push pr ci; do
+  grep -F "phase:$phase " "$FM_FAKE_OTEL_LOG" | grep -q -- '--status-code error' ||
+    fail "a phase still non-terminal when the run ends failed must close with an error span ($phase)"
+done
+pass "phases still non-terminal at run termination close with the run outcome's status code"
 
-[ "$(cat "$FM_FAKE_NM_COUNTER")" -ge 2 ] ||
-  fail "free text naming a failed phase must not end the poll loop on the first iteration"
-pass "run termination follows the run-level status/outcome lines, not free text"
+[ "$(cat "$FM_FAKE_NM_COUNTER")" -ge 3 ] ||
+  fail "a gate: block status must not be read as the run status and end the poll loop"
+pass "run termination reads the run: block's own status line, not any status: line in the blob"
 
 echo "all fm-otel-cli-lib tests passed"
