@@ -2001,6 +2001,43 @@ test_distinct_merged_prs_keep_distinct_wakes() {
   pass "distinct merged PRs for one task retain distinct captain-facing wakes"
 }
 
+# The supervision branch's captain-outcome delivery asks this question before it
+# spends a second model turn re-reporting a merge the captain already has
+# (.pi/extensions/fm-branch-supervision.ts). The answer has to come from the
+# record the real merge path leaves behind, so this drives that real path first
+# and then asks bin/fm-pr-merge-notified.sh about the outcome text a supervisor
+# would actually write.
+test_published_merge_is_recognised_from_outcome_text() {
+  local case_dir url other_url
+  url=https://github.com/example/repo/pull/71
+  other_url=https://github.com/example/repo/pull/72
+  case_dir=$(make_home_case published-merge-recognised)
+  add_gh_mocks "$case_dir" cccccccccccccccccccccccccccccccccccccccc
+  : >"$case_dir/gh-axi.log"
+
+  printf 'PR %s merged cleanly, all checks green.\n' "$url" \
+    | FM_STATE_OVERRIDE="$case_dir/state" "$ROOT/bin/fm-pr-merge-notified.sh" \
+    && fail "published-merge-recognised: a merge this home never published was reported as already published"
+
+  FM_TEST_HOME="$case_dir/home" run_pr_merge "$case_dir" task-x1 "$url" \
+    >"$case_dir/stdout" 2>"$case_dir/stderr" \
+    || fail "published-merge-recognised: merge failed"
+
+  printf 'PR %s has now merged cleanly (squash merge cccdddd); the local copy is synced.\n' "$url" \
+    | FM_STATE_OVERRIDE="$case_dir/state" "$ROOT/bin/fm-pr-merge-notified.sh" \
+    || fail "published-merge-recognised: the merge this home just published was not recognised from its outcome text"
+
+  printf 'PR %s merged cleanly, all checks green.\n' "$other_url" \
+    | FM_STATE_OVERRIDE="$case_dir/state" "$ROOT/bin/fm-pr-merge-notified.sh" \
+    && fail "published-merge-recognised: a different PR was mistaken for the published one"
+
+  printf 'the worker is healthy and needs nothing\n' \
+    | FM_STATE_OVERRIDE="$case_dir/state" "$ROOT/bin/fm-pr-merge-notified.sh" \
+    && fail "published-merge-recognised: an outcome naming no PR was treated as an already-published merge"
+
+  pass "an outcome naming a merge this home already published is recognised, and no other outcome is"
+}
+
 test_uncommitted_marker_retry_is_never_silent() {
   local case_dir url count
   url=https://github.com/example/repo/pull/67
@@ -2131,5 +2168,6 @@ test_gitlab_refusal_reports_nothing
 test_main_home_merge_leaves_a_durable_wake
 test_queued_github_merge_leaves_the_poll_armed
 test_distinct_merged_prs_keep_distinct_wakes
+test_published_merge_is_recognised_from_outcome_text
 test_uncommitted_marker_retry_is_never_silent
 test_secondmate_without_parent_binding_is_loud
