@@ -650,6 +650,7 @@ export default function (pi: ExtensionAPI) {
     // turn. This residual is accepted: M1 keeps that turn quiet, while closing
     // it would require a new durable identity record this change does not add.
     const downgraded = verdict === "captain" && mainAlreadyReportedMerge(summary);
+    if (!actingAsOwner(expectedGeneration)) return { ok: false, downgraded };
     if (verdict === "captain" && !downgraded) {
       const message = {
         customType: "fm-branch-merge",
