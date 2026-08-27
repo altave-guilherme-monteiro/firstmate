@@ -523,7 +523,7 @@ The generated Herdr contract must use a named non-`default` isolated lab and its
 Load `secondmate-provisioning` before creating or using a charter brief and preserve its idle-by-default and marked-return-channel contracts.
 Status appends are sparse supervisor-actionable events, not routine progress; `bin/fm-classify-lib.sh` owns keyed open and resolved semantics.
 The scaffold is a safety contract, not a suggestion.
-Every scout and ship scaffold declares `bin/fm-graphify-setup.sh` as an early setup step so the crewmate builds a local codebase graph before grepping blind; `bin/fm-graphify-setup.sh --help` owns the mechanics.
+Every scout and ship scaffold declares `bin/fm-graphify-setup.sh` as an early setup step so the crewmate builds a local codebase graph before grepping blind; the `codebase-graph` skill owns when to build and which verb answers which question, and `bin/fm-graphify-setup.sh --help` owns the mechanics.
 
 ## 12. Self-update
 
@@ -551,6 +551,7 @@ These skills are not captain-invocable; load them only at their precise triggers
   Never run a registered source's blocking command yourself in a conversational turn.
 - `fmx-respond` - load on an `x-mention <request_id>` `check:` wake to handle the mention, on an `x-mode-error ...` `check:` wake to report the Relay configuration blocker, on a `public-followup ...` `check:` wake or a startup-surfaced public commitment, and on any milestone or terminal wake for a Relay-linked task before posting its completion follow-up; relevant only when Relay is on.
 - `firstmate-codexapp` - load before coordinating a visible Codex Desktop thread, evaluating a Codex App backend request, or reconciling Codex Desktop host-tool smoke evidence for Firstmate work.
+- `codebase-graph` - load before briefing a crewmate that must trace structure, when running `bin/fm-graphify-setup.sh`, when a `graphify` query returns nothing or errors, or when a built graph may be stale after edits.
 - `firstmate-coding-guidelines` - load before changing firstmate's shared, tracked material, as defined by section 1's list, whether editing directly or briefing a crewmate for a firstmate-repo task.
 
 ## 14. Relay

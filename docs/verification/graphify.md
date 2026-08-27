@@ -3,7 +3,7 @@
 Audience: maintainer verification.
 
 This record supports the guarantee that `graphify` (https://github.com/Graphify-Labs/graphify, package `graphifyy` 0.9.50) builds a real, queryable codebase graph for a crewmate worktree at low, measured cost, with no LLM call for the code graph itself.
-`bin/fm-graphify-setup.sh --help` owns the install and build mechanics; `bin/fm-brief.sh` wires the setup step into every scout and ship scaffold (AGENTS.md section 11).
+`bin/fm-graphify-setup.sh --help` owns the install and build mechanics, the `codebase-graph` skill owns the situational procedure, and `bin/fm-brief.sh` wires the setup step into every scout and ship scaffold (AGENTS.md section 11).
 
 ## Install and version
 
@@ -40,7 +40,20 @@ A few seconds per crewmate spawn is judged cheap enough to run on demand rather 
 
 ## Query verbs
 
-All three verbs the survey named were run against the built graph and returned real, non-empty, useful output:
+All three declared verbs (`query`, `path`, `explain`) were run against the built graph and returned real, non-empty, useful output:
+
+```text
+$ graphify query "fm-graphify-setup"
+Graph: graphify-out/graph.json (7903 nodes) | Traversal: BFS depth=2 | Start: ['Setup', 'Graphify codebase-comprehension verification'] | 15 nodes found
+
+NODE Graphify codebase-comprehension verification [src=docs/verification/graphify.md loc=L1 community=]
+NODE Graph build cost [src=docs/verification/graphify.md loc=L22 community=]
+NODE Query verbs [src=docs/verification/graphify.md loc=L41 community=]
+...
+EDGE graphify.md --contains [EXTRACTED]--> Graphify codebase-comprehension verification at=docs/verification/graphify.md:L1
+```
+
+`query` is the keyword entry point used when only a subject is known rather than a node name; it is a BFS over the built `graph.json` with no LLM call, and it reports its own traversal depth, start nodes and token budget.
 
 ```text
 $ graphify explain "fm-spawn.sh"
@@ -68,8 +81,29 @@ Shortest path (4 hops):
 `path --undirected` found the real four-hop dependency chain between two unrelated-looking scripts that share no direct edge; the plain directed `graphify path` correctly reported no directed path exists, which is itself informative.
 `affected` returned no results for `fm-spawn.sh` in this repository because nothing in the indexed graph calls into it by a tracked relation from another node in the reverse direction it traverses; this is a true negative, not a tool failure, confirmed by `explain` showing the file does have many outbound edges.
 
-## Known interaction with the AGENTS.md/CLAUDE.md pointer convention
+## Worktree hygiene
 
-`graphify claude install` unconditionally appends a "## graphify" section to the target worktree's `CLAUDE.md`.
-In a worktree whose `CLAUDE.md` is `bin/fm-ensure-agents-md.sh`'s canonical two-line `@AGENTS.md` pointer, this was observed to leave the pointer's two lines intact with the graphify section appended below - Claude Code still resolves the import correctly, but the file is no longer byte-identical to the canonical pointer form that script treats as up to date.
-Checked 2026-08-27 by running `bin/fm-graphify-setup.sh .` against this repository's own worktree and inspecting the resulting `CLAUDE.md`; the test artifacts (`CLAUDE.md`, `.claude/settings.json`, `graphify-out/`) were reverted before this change was committed, so this repository does not itself carry a built graph or the installed hook.
+`graphify claude install` unconditionally appends a "## graphify" section to the target worktree's `CLAUDE.md`, writes `.claude/settings.json` plus a `.claude/settings.json.graphify-bak`, and `graphify update` writes `graphify-out/`.
+None of that may reach a crewmate's PR, so `bin/fm-graphify-setup.sh` now restores `CLAUDE.md` byte-for-byte after the install, adds `graphify-out/` and `.claude/settings.json.graphify-bak` to the checkout's local `.git/info/exclude`, and marks the tracked `.claude/settings.json` (which must keep the hook registration) `skip-worktree`.
+
+Checked 2026-08-27 by running `bin/fm-graphify-setup.sh .` twice against this repository's own worktree:
+
+```text
+$ md5sum CLAUDE.md > /tmp/cmd5; bash bin/fm-graphify-setup.sh . >/dev/null; md5sum -c /tmp/cmd5
+CLAUDE.md: OK
+$ git status --short
+ M .gitignore
+ M AGENTS.md
+ M bin/fm-graphify-setup.sh
+ M docs/documentation-audiences.json
+?? .agents/skills/codebase-graph/
+```
+
+Only this change's own edits remain; no graphify artifact appears.
+An incremental rerun after the first build cost `real 0m4.231s` on this repository, so a rebuild after edits stays in the same few-seconds band as the cold build.
+
+## Strict hook timing
+
+`graphify claude install --strict` registers its PreToolUse hooks by writing `.claude/settings.json`, which a Claude Code session reads at startup.
+It therefore does not retroactively hook the session that ran the install, and the strict "first raw read is redirected into a graph query" behavior applies to the next session in that worktree.
+The declared mechanism for the current crewmate is the explicit `query`/`path`/`explain` instruction in `bin/fm-brief.sh`'s generated brief, not the hook; the `codebase-graph` skill states this so no crewmate assumes an inert redirect is protecting it.
