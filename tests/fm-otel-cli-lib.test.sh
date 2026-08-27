@@ -174,16 +174,19 @@ GUARD_LOG="$POLLER_DIR/guard.log"
 : > "$GUARD_LOG"
 RC=0
 env -u OTEL_EXPORTER_OTLP_ENDPOINT FM_FAKE_OTEL_LOG="$GUARD_LOG" PATH="$POLLER_DIR/bin:$ORIG_PATH" \
-  bash -c '. bin/fm-otel-cli-lib.sh; fm_otel_span "$1" svc name 1 2 ok' _ "$VALID" || RC=$?
+  bash -c '. "$1"; fm_otel_span "$2" svc name 1 2 ok' _ "$ROOT/bin/fm-otel-cli-lib.sh" "$VALID" || RC=$?
 [ "$RC" -eq 0 ] || fail "fm_otel_span must return 0 with no endpoint configured"
 [ ! -s "$GUARD_LOG" ] || fail "fm_otel_span must not invoke otel-cli with no OTLP endpoint configured"
 pass "fm_otel_span emits nothing when OTEL_EXPORTER_OTLP_ENDPOINT is unset"
 
 for bad_args in "abc 20" "1 abc" "0 20"; do
   RC=0
+  : > "$FM_FAKE_NM_COUNTER"
   PATH="$POLLER_DIR/bin:$ORIG_PATH" OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:1 \
     bash "$ROOT/bin/fm-pipeline-trace.sh" "$POLLER_DIR/task.meta" "$POLLER_DIR/state/effective" $bad_args 2>/dev/null || RC=$?
   [ "$RC" -eq 0 ] || fail "malformed timing args ($bad_args) must degrade to a no-op exit 0, got $RC"
+  [ ! -s "$FM_FAKE_NM_COUNTER" ] ||
+    fail "malformed timing args ($bad_args) must abort before polling, polled $(cat "$FM_FAKE_NM_COUNTER") times"
 done
 pass "non-positive-integer poll-interval or max-runtime degrades to a silent no-op"
 
