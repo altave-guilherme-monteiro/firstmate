@@ -259,7 +259,7 @@ herdr 0.7.5
 ### Linux host re-check
 
 All prior evidence in this section is from macOS.
-The core read-only probes were re-run on 2026-08-27 on `x86_64 GNU/Linux` (kernel 6.17.0), where this machine has no tmux installed and every task therefore already runs on Herdr, confirming the client-server handshake and basic status read work identically off macOS.
+The core read-only probes were re-run on 2026-08-27 on `x86_64 GNU/Linux` (kernel 6.17.0), where tasks run on Herdr through auto-detection (`HERDR_ENV=1`) or an explicit `config/backend` selection rather than through the tmux default, confirming the client-server handshake and basic status read work identically off macOS.
 
 ```sh
 herdr --version
