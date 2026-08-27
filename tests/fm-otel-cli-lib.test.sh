@@ -159,6 +159,8 @@ cp "$POLLER_DIR/bin/otel-cli" "$SILENT_DIR/bin/otel-cli"
 chmod +x "$SILENT_DIR/bin/no-mistakes" "$SILENT_DIR/bin/otel-cli"
 : > "$FM_FAKE_NM_COUNTER"
 
+DEFAULT_EMPTY_POLLS=5
+
 SILENT_START=$(date +%s)
 PATH="$SILENT_DIR/bin:$ORIG_PATH" OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:1 \
   bash "$ROOT/bin/fm-pipeline-trace.sh" "$POLLER_DIR/task.meta" "$POLLER_DIR/state/effective" 1 600 ||
@@ -175,8 +177,8 @@ PATH="$SILENT_DIR/bin:$ORIG_PATH" OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:1
   FM_PIPELINE_TRACE_MAX_EMPTY_POLLS=not-a-number \
   bash "$ROOT/bin/fm-pipeline-trace.sh" "$POLLER_DIR/task.meta" "$POLLER_DIR/state/effective" 1 600 ||
   fail "a malformed FM_PIPELINE_TRACE_MAX_EMPTY_POLLS must not fail the poller"
-[ "$(cat "$FM_FAKE_NM_COUNTER")" -le 6 ] ||
-  fail "a malformed empty-poll bound must fall back to the default, polled $(cat "$FM_FAKE_NM_COUNTER") times"
+[ "$(cat "$FM_FAKE_NM_COUNTER")" -eq "$DEFAULT_EMPTY_POLLS" ] ||
+  fail "a malformed empty-poll bound must fall back to the default of $DEFAULT_EMPTY_POLLS polls, polled $(cat "$FM_FAKE_NM_COUNTER") times"
 pass "a malformed FM_PIPELINE_TRACE_MAX_EMPTY_POLLS falls back to the default bound"
 
 GUARD_LOG="$POLLER_DIR/guard.log"
