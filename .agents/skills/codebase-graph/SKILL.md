@@ -16,7 +16,7 @@ This skill owns when to build and how to read the result.
 
 - Build once per crewmate worktree, as the early setup step the scout and ship briefs declare.
 - Rebuild with the same command after the crewmate's own edits change file structure; `graphify update` is incremental and caches unchanged files, so a rebuild costs far less than the first build.
-- Do not build for a task that never asks a structural question; the script is opt-in and nothing depends on it.
+- Scout and ship briefs declare the build unconditionally, so a crewmate on one of those follows the brief. Outside that declared trigger the script is opt-in, and a task that never asks a structural question can skip it; nothing depends on the graph existing.
 
 ## Which verb answers which question
 
@@ -29,5 +29,6 @@ Every edge carries `EXTRACTED` (read from the AST) or `INFERRED` (heuristic). Tr
 ## When it does not answer
 
 - Empty result from a correct-looking node name usually means the graph predates the current files: rebuild, then retry.
+- In a repo whose `.claude/settings.json` is tracked, the setup script marks that file skip-worktree so the hook does not reach the PR. A later `git rebase` onto an upstream commit touching it then fails with "Entry '.claude/settings.json' not uptodate. Cannot merge."; recover with `git update-index --no-skip-worktree .claude/settings.json`, then `git checkout -- .claude/settings.json`, then rebase.
 - Build failure or a missing `graphify` CLI is never a blocker. Say so in the report or status line and fall back to grep; no spawn, teardown, or task depends on the graph existing.
 - The `--strict` Claude Code hook is registered in `.claude/settings.json` and read at session start, so it does not hook the session that installed it. The declared verbs above, not the hook, are the mechanism the current crewmate uses.

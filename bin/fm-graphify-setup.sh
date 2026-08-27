@@ -33,17 +33,26 @@ session in the same worktree, and treat the declared query verbs in the brief
 as the mechanism the current crewmate actually uses.
 
 Worktree hygiene: the artifacts this leaves behind must never reach a
-crewmate's PR. graphify-out/ and graphify's .claude/settings.json.graphify-bak
-are added to the checkout's local
-.git/info/exclude (so this holds in any repo, not just one whose tracked
-.gitignore happens to list them); CLAUDE.md, which graphify appends
-its "## graphify" section to, is restored byte-for-byte after the install so
-fm-ensure-agents-md.sh's canonical pointer form survives; and the modified
-tracked .claude/settings.json, which must keep the hook registration to be
-useful, is marked skip-worktree so `git add -A` and `git commit -a` do not
-pick it up. Undo that mark with
-`git update-index --no-skip-worktree .claude/settings.json` if a task ever
-needs to commit a real settings.json change.
+crewmate's PR, and nothing here writes outside the target worktree (a linked
+worktree shares .git/info/exclude with the primary checkout, so that file is
+deliberately not touched). graphify-out/ is made self-ignoring with its own
+graphify-out/.gitignore, which works in any repo whose tracked .gitignore
+does not already list it. CLAUDE.md, which graphify appends its "## graphify"
+section to, is restored byte-for-byte on every exit path including failure,
+and deleted if graphify created it in a repo that had none, so
+fm-ensure-agents-md.sh's canonical pointer form survives. graphify's
+.claude/settings.json.graphify-bak, and .claude/settings.json itself when it
+is untracked or newly created, are covered by a self-ignoring
+.claude/.gitignore (written only if that file does not already exist).
+
+When .claude/settings.json is tracked it must keep the hook registration to
+be useful, so it is marked skip-worktree instead: `git add -A` and
+`git commit -a` then leave it alone. That mark hides a dirty tracked file, so
+a later `git rebase` onto an upstream commit that touches the same file fails
+with "Entry '.claude/settings.json' not uptodate. Cannot merge." Recover with
+`git update-index --no-skip-worktree .claude/settings.json` followed by
+`git checkout -- .claude/settings.json`, then rebase; re-run this script
+afterwards if the hook is still wanted.
 EOF
 }
 
@@ -69,39 +78,60 @@ if ! command -v graphify >/dev/null 2>&1; then
   fi
 fi
 
-if git -C "$DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-  EXCLUDE_FILE=$(git -C "$DIR" rev-parse --git-path info/exclude)
-  case "$EXCLUDE_FILE" in
-    /*) ;;
-    *) EXCLUDE_FILE="$DIR/$EXCLUDE_FILE" ;;
-  esac
-  mkdir -p "$(dirname "$EXCLUDE_FILE")"
-  for PATTERN in 'graphify-out/' '.claude/settings.json.graphify-bak'; do
-    grep -qxF "$PATTERN" "$EXCLUDE_FILE" 2>/dev/null || printf '%s\n' "$PATTERN" >>"$EXCLUDE_FILE"
-  done
-fi
+ensure_self_ignoring() {
+  IGNORE_FILE=$1
+  shift
+  [ -e "$IGNORE_FILE" ] && return 0
+  mkdir -p "$(dirname "$IGNORE_FILE")"
+  printf '%s\n' "$@" >"$IGNORE_FILE"
+}
+
+IN_GIT_WORKTREE=false
+git -C "$DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1 && IN_GIT_WORKTREE=true
 
 START=$(date +%s)
 ( cd "$DIR" && graphify update . --no-cluster )
 END=$(date +%s)
 echo "graphify graph built in $((END - START))s at $DIR/graphify-out/graph.json"
 
+if [ "$IN_GIT_WORKTREE" = true ] && [ -d "$DIR/graphify-out" ]; then
+  ensure_self_ignoring "$DIR/graphify-out/.gitignore" '*'
+fi
+
 CLAUDE_MD_BACKUP=""
+CLAUDE_MD_EXISTED=false
 if [ -f "$DIR/CLAUDE.md" ]; then
+  CLAUDE_MD_EXISTED=true
   CLAUDE_MD_BACKUP=$(mktemp)
   cp "$DIR/CLAUDE.md" "$CLAUDE_MD_BACKUP"
 fi
 
-( cd "$DIR" && graphify claude install --strict )
+restore_claude_md() {
+  if [ "$CLAUDE_MD_EXISTED" = true ]; then
+    [ -n "$CLAUDE_MD_BACKUP" ] && cp "$CLAUDE_MD_BACKUP" "$DIR/CLAUDE.md"
+  else
+    rm -f "$DIR/CLAUDE.md"
+  fi
+  [ -n "$CLAUDE_MD_BACKUP" ] && rm -f "$CLAUDE_MD_BACKUP"
+  return 0
+}
+trap restore_claude_md EXIT
 
-if [ -n "$CLAUDE_MD_BACKUP" ]; then
-  cp "$CLAUDE_MD_BACKUP" "$DIR/CLAUDE.md"
-  rm -f "$CLAUDE_MD_BACKUP"
+SETTINGS_TRACKED=false
+if [ "$IN_GIT_WORKTREE" = true ] &&
+   git -C "$DIR" ls-files --error-unmatch .claude/settings.json >/dev/null 2>&1; then
+  SETTINGS_TRACKED=true
 fi
 
-if git -C "$DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1 &&
-   git -C "$DIR" ls-files --error-unmatch .claude/settings.json >/dev/null 2>&1; then
-  git -C "$DIR" update-index --skip-worktree .claude/settings.json
+( cd "$DIR" && graphify claude install --strict )
+
+if [ "$IN_GIT_WORKTREE" = true ]; then
+  if [ "$SETTINGS_TRACKED" = true ]; then
+    git -C "$DIR" update-index --skip-worktree .claude/settings.json
+    ensure_self_ignoring "$DIR/.claude/.gitignore" '.gitignore' 'settings.json.graphify-bak'
+  else
+    ensure_self_ignoring "$DIR/.claude/.gitignore" '.gitignore' 'settings.json' 'settings.json.graphify-bak'
+  fi
 fi
 
 echo "graphify strict hook installed for $DIR (takes effect for the next Claude Code session in this worktree)"
