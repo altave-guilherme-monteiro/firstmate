@@ -202,4 +202,70 @@ for bad_args in "abc 20" "1 abc" "0 20"; do
 done
 pass "non-positive-integer poll-interval or max-runtime degrades to a silent no-op"
 
+CANCEL_DIR="$TMP/cancelled"
+mkdir -p "$CANCEL_DIR/bin"
+cp "$POLLER_DIR/bin/otel-cli" "$CANCEL_DIR/bin/otel-cli"
+cat > "$CANCEL_DIR/bin/no-mistakes" <<'FAKE'
+#!/usr/bin/env bash
+n=$(cat "$FM_FAKE_NM_COUNTER" 2>/dev/null)
+[ -n "$n" ] || n=0
+printf '%s\n' "$(( n + 1 ))" > "$FM_FAKE_NM_COUNTER"
+echo "run:"
+echo '  id: "01RUN"'
+if [ "$n" -eq 0 ]; then
+  echo "  status: running"
+  echo "steps[1]{step,status}:"
+  echo "  document,running"
+else
+  echo "  status: cancelled"
+fi
+FAKE
+chmod +x "$CANCEL_DIR/bin/no-mistakes" "$CANCEL_DIR/bin/otel-cli"
+: > "$FM_FAKE_NM_COUNTER"
+: > "$FM_FAKE_OTEL_LOG"
+
+CANCEL_START=$(date +%s)
+PATH="$CANCEL_DIR/bin:$ORIG_PATH" OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:1 \
+  bash "$ROOT/bin/fm-pipeline-trace.sh" "$POLLER_DIR/task.meta" "$POLLER_DIR/state/effective" 1 600 ||
+  fail "fm-pipeline-trace.sh must exit 0 when the run is cancelled"
+CANCEL_ELAPSED=$(( $(date +%s) - CANCEL_START ))
+[ "$CANCEL_ELAPSED" -lt 60 ] ||
+  fail "a cancelled run must terminate the poller instead of burning max-runtime, took ${CANCEL_ELAPSED}s"
+grep -F 'phase:document ' "$FM_FAKE_OTEL_LOG" | grep -q -- '--status-code error' ||
+  fail "a phase still non-terminal when the run is cancelled must close with an error span"
+pass "a cancelled run terminates the poller and closes active phases with error spans"
+
+FALLBACK_DIR="$TMP/fallback"
+mkdir -p "$FALLBACK_DIR/bin"
+cp "$POLLER_DIR/bin/otel-cli" "$FALLBACK_DIR/bin/otel-cli"
+cat > "$FALLBACK_DIR/bin/no-mistakes" <<'FAKE'
+#!/usr/bin/env bash
+n=$(cat "$FM_FAKE_NM_COUNTER" 2>/dev/null)
+[ -n "$n" ] || n=0
+printf '%s\n' "$(( n + 1 ))" > "$FM_FAKE_NM_COUNTER"
+echo "run:"
+echo '  id: "01RUN"'
+case $n in
+  0) state=queued ;;
+  1|2) state=running ;;
+  *) state=completed ;;
+esac
+if [ "$n" -ge 3 ]; then echo "  status: completed"; else echo "  status: running"; fi
+echo "steps[1]{step,status}:"
+echo "  document,$state"
+FAKE
+chmod +x "$FALLBACK_DIR/bin/no-mistakes" "$FALLBACK_DIR/bin/otel-cli"
+: > "$FM_FAKE_NM_COUNTER"
+: > "$FM_FAKE_OTEL_LOG"
+
+PATH="$FALLBACK_DIR/bin:$ORIG_PATH" OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:1 \
+  bash "$ROOT/bin/fm-pipeline-trace.sh" "$POLLER_DIR/task.meta" "$POLLER_DIR/state/effective" 2 600 ||
+  fail "fm-pipeline-trace.sh must exit 0 when a step reports no duration_ms"
+FALLBACK_SPAN=$(grep -F 'phase:document ' "$FM_FAKE_OTEL_LOG" | head -n1)
+FALLBACK_START=$(printf '%s\n' "$FALLBACK_SPAN" | sed -E 's/.*--start ([0-9]+).*/\1/')
+FALLBACK_END=$(printf '%s\n' "$FALLBACK_SPAN" | sed -E 's/.*--end ([0-9]+).*/\1/')
+[ "$(( FALLBACK_END - FALLBACK_START ))" -ge 5 ] ||
+  fail "a duration-less span must start at the phase's first observation, not its last state change, got $(( FALLBACK_END - FALLBACK_START ))s"
+pass "intermediate state transitions do not truncate a duration-less phase span"
+
 echo "all fm-otel-cli-lib tests passed"

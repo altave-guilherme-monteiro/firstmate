@@ -34,8 +34,9 @@ fm_trace_context_valid "$TRACEPARENT_VALUE" || exit 0
 PHASES=(intent rebase review test document lint push pr ci)
 STEP_TERMINAL='completed|failed|cancelled|skipped'
 STEP_ERROR='failed|cancelled'
-RUN_TERMINAL_STATUS='completed'
-RUN_TERMINAL_OUTCOME='passed|failed'
+RUN_TERMINAL_STATUS='completed|failed|cancelled'
+RUN_TERMINAL_OUTCOME='passed|failed|cancelled'
+RUN_ERROR_OUTCOME='failed|cancelled'
 DEFAULT_MAX_EMPTY_POLLS=5
 MAX_EMPTY_POLLS=${FM_PIPELINE_TRACE_MAX_EMPTY_POLLS:-$DEFAULT_MAX_EMPTY_POLLS}
 positive_integer "$MAX_EMPTY_POLLS" || MAX_EMPTY_POLLS=$DEFAULT_MAX_EMPTY_POLLS
@@ -127,9 +128,9 @@ while [ "$(now_epoch)" -lt "$deadline" ] && [ "$run_done" -eq 0 ]; do
       span_end=$(now_epoch)
       span_begin=$(span_start_for "$span_end" "$duration_ms" "${phase_since[$p]}")
       fm_otel_span "$TRACEPARENT_VALUE" firstmate-pipeline "phase:$p" "$span_begin" "$span_end" "$span_status"
+      phase_since[$p]=$(now_epoch)
     fi
     phase_state[$p]=$state
-    phase_since[$p]=$(now_epoch)
   done
 
   run_status=$(run_block_status "$status_out" || true)
@@ -146,7 +147,10 @@ while [ "$(now_epoch)" -lt "$deadline" ] && [ "$run_done" -eq 0 ]; do
     printf '%s' "$run_outcome" | grep -qE "^($RUN_TERMINAL_OUTCOME)\$"; then
     run_done=1
     closing_status=ok
-    [ "$run_outcome" = failed ] && closing_status=error
+    if printf '%s' "$run_outcome" | grep -qE "^($RUN_ERROR_OUTCOME)\$" ||
+      printf '%s' "$run_status" | grep -qE "^($RUN_ERROR_OUTCOME)\$"; then
+      closing_status=error
+    fi
     closing_end=$(now_epoch)
     for p in "${PHASES[@]}"; do
       [ -n "${phase_since[$p]:-}" ] || continue
