@@ -25,17 +25,3 @@ fm_otel_span() {
     >/dev/null 2>&1 || true
   return 0
 }
-
-fm_otel_wrap() {
-  local tp=$1 service=$2 name=$3
-  shift 3
-  [ "${1:-}" = -- ] || { echo "fm_otel_wrap: expected -- before the command" >&2; return 2; }
-  shift
-  local start end rc
-  start=$(date +%s)
-  "$@"
-  rc=$?
-  end=$(date +%s)
-  fm_otel_span "$tp" "$service" "$name" "$start" "$end" "$([ "$rc" -eq 0 ] && echo ok || echo error)"
-  return "$rc"
-}

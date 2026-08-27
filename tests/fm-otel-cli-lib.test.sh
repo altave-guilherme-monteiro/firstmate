@@ -50,19 +50,6 @@ fm_otel_span "$VALID" svc name "$(date +%s)" "$(date +%s)" ok || RC=$?
 [ "$RC" -eq 0 ] || fail "fm_otel_span must always return 0 when otel-cli is missing"
 pass "fm_otel_span degrades to a no-op and never fails when otel-cli is missing"
 
-RC=0
-fm_otel_wrap "$VALID" svc name -- true || RC=$?
-[ "$RC" -eq 0 ] || fail "fm_otel_wrap must return the wrapped command's own exit code (true)"
-pass "fm_otel_wrap preserves a successful wrapped command's exit code with telemetry disabled"
-
-RC=0
-fm_otel_wrap "$VALID" svc name -- false || RC=$?
-[ "$RC" -eq 1 ] || fail "fm_otel_wrap must return the wrapped command's own exit code (false)"
-pass "fm_otel_wrap preserves a failing wrapped command's exit code with telemetry disabled"
-
-fm_otel_wrap "$VALID" svc name 2>/dev/null && fail "fm_otel_wrap must reject a call missing the -- separator"
-pass "fm_otel_wrap refuses a call with no -- separator before the command"
-
 export PATH=$ORIG_PATH
 if command -v otel-cli >/dev/null 2>&1; then
   fm_otel_cli_available || fail "fm_otel_cli_available must be true when otel-cli is on PATH"
@@ -74,5 +61,55 @@ if command -v otel-cli >/dev/null 2>&1; then
   [ "$RC" -eq 0 ] || fail "fm_otel_span must always return 0 against an unreachable endpoint"
   pass "fm_otel_span never fails the caller when the configured OTLP endpoint is unreachable"
 fi
+
+POLLER_DIR="$TMP/poller"
+mkdir -p "$POLLER_DIR/bin" "$POLLER_DIR/state"
+write_lock "$POLLER_DIR/state"
+write_effective "$POLLER_DIR/state" on
+printf 'traceparent=%s\n' "$VALID" > "$POLLER_DIR/task.meta"
+
+cat > "$POLLER_DIR/bin/otel-cli" <<'FAKE'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$FM_FAKE_OTEL_LOG"
+FAKE
+cat > "$POLLER_DIR/bin/no-mistakes" <<'FAKE'
+#!/usr/bin/env bash
+n=0
+[ -f "$FM_FAKE_NM_COUNTER" ] && n=$(cat "$FM_FAKE_NM_COUNTER")
+printf '%s\n' "$(( n + 1 ))" > "$FM_FAKE_NM_COUNTER"
+echo "task: make the review outcome failed for a cancelled ci run"
+echo "log: /tmp/run/review-failed.log"
+echo "steps[9]{name,state}:"
+if [ "$n" -eq 0 ]; then
+  echo "  intent,running"
+  echo "  review,pending"
+else
+  echo "  intent,passed"
+  echo "  review,failed"
+  echo "outcome: checks green"
+fi
+FAKE
+chmod +x "$POLLER_DIR/bin/otel-cli" "$POLLER_DIR/bin/no-mistakes"
+
+FM_FAKE_OTEL_LOG="$POLLER_DIR/otel.log"
+FM_FAKE_NM_COUNTER="$POLLER_DIR/counter"
+export FM_FAKE_OTEL_LOG FM_FAKE_NM_COUNTER
+: > "$FM_FAKE_OTEL_LOG"
+
+PATH="$POLLER_DIR/bin:$ORIG_PATH" OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:1 \
+  bash "$ROOT/bin/fm-pipeline-trace.sh" "$POLLER_DIR/task.meta" "$POLLER_DIR/state/effective" 1 20 ||
+  fail "fm-pipeline-trace.sh must exit 0 against a fake pipeline"
+
+grep -q 'phase:intent' "$FM_FAKE_OTEL_LOG" ||
+  fail "the poller must emit a span for intent once its steps row reaches a terminal state"
+pass "the poller emits a phase span from the steps table row, not from free text in the status header"
+
+grep -q -- '--status-code error' "$FM_FAKE_OTEL_LOG" ||
+  fail "a failed step must emit a span with error status"
+pass "a failed step's span carries an error status code"
+
+[ "$(cat "$FM_FAKE_NM_COUNTER")" -ge 2 ] ||
+  fail "free text naming a failed/cancelled phase must not end the poll loop on the first iteration"
+pass "run termination follows the run-level outcome line, not any status text mentioning failure"
 
 echo "all fm-otel-cli-lib tests passed"

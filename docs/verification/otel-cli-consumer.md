@@ -42,11 +42,11 @@ ok - fm_otel_cli_enabled is false when the frozen trace-context decision is off
 ok - fm_otel_cli_enabled is false when OTEL_EXPORTER_OTLP_ENDPOINT is unset even with trace-context on
 ok - fm_otel_cli_enabled is false when otel-cli is not installed
 ok - fm_otel_span degrades to a no-op and never fails when otel-cli is missing
-ok - fm_otel_wrap preserves a successful wrapped command's exit code with telemetry disabled
-ok - fm_otel_wrap preserves a failing wrapped command's exit code with telemetry disabled
-ok - fm_otel_wrap refuses a call with no -- separator before the command
 ok - fm_otel_cli_available detects an installed otel-cli
 ok - fm_otel_span never fails the caller when the configured OTLP endpoint is unreachable
+ok - the poller emits a phase span from the steps table row, not from free text in the status header
+ok - a failed step's span carries an error status code
+ok - run termination follows the run-level outcome line, not any status text mentioning failure
 all fm-otel-cli-lib tests passed
 ```
 
@@ -77,7 +77,7 @@ trace: e1b3f2a9c7d64e58a1f0b2c3d4e5f6a7
 ```
 
 This is a fake `no-mistakes` binary shaped after the real `axi status` TOON grammar and the real nine-step enum, not a live pipeline run, because standing up a full real pipeline run against a shared daemon purely to observe its output format was out of scope for this pass.
-The parser in `bin/fm-pipeline-trace.sh` is intentionally permissive (matches a known step name plus a known state word anywhere on a line) so that minor TOON formatting drift degrades to fewer or no phase spans rather than a parse failure, per the safety contract in [`../otel-cli-consumer.md`](../otel-cli-consumer.md#safety).
+The parser in `bin/fm-pipeline-trace.sh` reads only the `name,state` rows under the `steps[N]{name,state}:` header and treats the run as finished only when a run-level `outcome:`/`status:` line carries a terminal value, so free text elsewhere in the status output cannot invent a phase span or end the poll early; minor TOON formatting drift degrades to fewer or no phase spans rather than a parse failure, per the safety contract in [`../otel-cli-consumer.md`](../otel-cli-consumer.md#safety).
 This branch's own `no-mistakes` validation run is the first real pipeline run this wrapper will observe; if the live TOON shape needs a parser adjustment, that is a same-task correction to keep already-accepted behavior working, not a new requirement.
 
 ## Tracing off is a no-op
