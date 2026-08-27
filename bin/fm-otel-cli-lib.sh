@@ -15,6 +15,7 @@ fm_otel_cli_enabled() {
 
 fm_otel_span() {
   local tp=$1 service=$2 name=$3 start=$4 end=$5 status=${6:-unset}
+  [ -n "${OTEL_EXPORTER_OTLP_ENDPOINT:-}" ] || return 0
   fm_otel_cli_available || return 0
   TRACEPARENT="$tp" timeout "$FM_OTEL_CLI_TIMEOUT" otel-cli span \
     --service "$service" \

@@ -19,6 +19,13 @@ EFFECTIVE_FILE=$2
 POLL_INTERVAL=${3:-5}
 MAX_RUNTIME=${4:-3600}
 
+positive_integer() { case $1 in '' | *[!0-9]*) return 1 ;; esac; [ "$1" -gt 0 ]; }
+
+if ! positive_integer "$POLL_INTERVAL" || ! positive_integer "$MAX_RUNTIME"; then
+  echo "fm-pipeline-trace.sh: poll-interval and max-runtime must be positive integers; not tracing" >&2
+  exit 0
+fi
+
 fm_otel_cli_enabled "$EFFECTIVE_FILE" || exit 0
 
 TRACEPARENT_VALUE=$(fm_trace_context_recorded "$META_FILE")
