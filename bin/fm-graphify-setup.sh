@@ -47,14 +47,15 @@ is untracked or newly created, are covered by a self-ignoring
 holds when the install itself fails (written only if that file does not
 already exist).
 
-When .claude/settings.json is tracked it must keep the hook registration to
-be useful, so it is marked skip-worktree instead: `git add -A` and
-`git commit -a` then leave it alone. That mark hides a dirty tracked file, so
-a later `git rebase` onto an upstream commit that touches the same file fails
-with "Entry '.claude/settings.json' not uptodate. Cannot merge." Recover with
-`git update-index --no-skip-worktree .claude/settings.json` followed by
-`git checkout -- .claude/settings.json`, then rebase; re-run this script
-afterwards if the hook is still wanted.
+When .claude/settings.json is tracked, its pre-install content is restored
+on every exit path too, so the strict hook is only left installed where the
+file is untracked or graphify created it. Nothing is ever hidden from git:
+no index state is touched, a crewmate whose task is to edit settings.json
+still sees its own change in `git status`, and a later rebase behaves
+normally. The hook cannot help the session that ran this script anyway (see
+above), so a tracked settings.json trades it for that safety; run
+`graphify claude install --strict` by hand if a session in a disposable
+worktree wants it and the resulting diff is acceptable.
 EOF
 }
 
@@ -100,24 +101,25 @@ if [ "$IN_GIT_WORKTREE" = true ] && [ -d "$DIR/graphify-out" ]; then
   ensure_self_ignoring "$DIR/graphify-out/.gitignore" '*'
 fi
 
-CLAUDE_MD_BACKUP=""
-CLAUDE_MD_EXISTED=false
-if [ -f "$DIR/CLAUDE.md" ]; then
-  CLAUDE_MD_EXISTED=true
-  CLAUDE_MD_BACKUP=$(mktemp)
-  cp "$DIR/CLAUDE.md" "$CLAUDE_MD_BACKUP"
-fi
+snapshot_file() {
+  SNAPSHOT_PATH=$1
+  [ -f "$SNAPSHOT_PATH" ] || return 0
+  SNAPSHOT_COPY=$(mktemp)
+  cp "$SNAPSHOT_PATH" "$SNAPSHOT_COPY"
+  printf '%s\n' "$SNAPSHOT_COPY"
+}
 
-restore_claude_md() {
-  if [ "$CLAUDE_MD_EXISTED" = true ]; then
-    [ -n "$CLAUDE_MD_BACKUP" ] && cp "$CLAUDE_MD_BACKUP" "$DIR/CLAUDE.md"
+restore_file() {
+  TARGET=$1
+  BACKUP=$2
+  if [ -n "$BACKUP" ]; then
+    cp "$BACKUP" "$TARGET"
+    rm -f "$BACKUP"
   else
-    rm -f "$DIR/CLAUDE.md"
+    rm -f "$TARGET"
   fi
-  [ -n "$CLAUDE_MD_BACKUP" ] && rm -f "$CLAUDE_MD_BACKUP"
   return 0
 }
-trap restore_claude_md EXIT
 
 SETTINGS_TRACKED=false
 if [ "$IN_GIT_WORKTREE" = true ] &&
@@ -133,10 +135,21 @@ if [ "$IN_GIT_WORKTREE" = true ]; then
   fi
 fi
 
+CLAUDE_MD_BACKUP=$(snapshot_file "$DIR/CLAUDE.md")
+SETTINGS_BACKUP=""
+[ "$SETTINGS_TRACKED" = true ] && SETTINGS_BACKUP=$(snapshot_file "$DIR/.claude/settings.json")
+
+restore_snapshots() {
+  restore_file "$DIR/CLAUDE.md" "$CLAUDE_MD_BACKUP"
+  [ "$SETTINGS_TRACKED" = true ] && restore_file "$DIR/.claude/settings.json" "$SETTINGS_BACKUP"
+  return 0
+}
+trap restore_snapshots EXIT
+
 ( cd "$DIR" && graphify claude install --strict )
 
-if [ "$IN_GIT_WORKTREE" = true ] && [ "$SETTINGS_TRACKED" = true ]; then
-  git -C "$DIR" update-index --skip-worktree .claude/settings.json
+if [ "$SETTINGS_TRACKED" = true ]; then
+  echo "graphify strict hook not retained for $DIR: .claude/settings.json is tracked and was restored so no crewmate edit to it is hidden from git"
+else
+  echo "graphify strict hook installed for $DIR (takes effect for the next Claude Code session in this worktree)"
 fi
-
-echo "graphify strict hook installed for $DIR (takes effect for the next Claude Code session in this worktree)"

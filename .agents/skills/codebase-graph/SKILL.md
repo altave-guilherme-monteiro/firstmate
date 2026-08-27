@@ -29,6 +29,6 @@ Every edge carries `EXTRACTED` (read from the AST) or `INFERRED` (heuristic). Tr
 ## When it does not answer
 
 - Empty result from a correct-looking node name usually means the graph predates the current files: rebuild, then retry.
-- In a repo whose `.claude/settings.json` is tracked, the setup script marks that file skip-worktree so the hook does not reach the PR. A later `git rebase` onto an upstream commit touching it then fails with "Entry '.claude/settings.json' not uptodate. Cannot merge."; recover with `git update-index --no-skip-worktree .claude/settings.json`, then `git checkout -- .claude/settings.json`, then rebase.
+- In a repo whose `.claude/settings.json` is tracked, the setup script restores that file after the install rather than leaving graphify's hook in it, so a crewmate editing settings.json still sees its own change in `git status` and a rebase is unaffected. The strict hook is retained only where the file is untracked; it never helps the session that ran the script anyway.
 - Build failure or a missing `graphify` CLI is never a blocker. Say so in the report or status line and fall back to grep; no spawn, teardown, or task depends on the graph existing.
 - The `--strict` Claude Code hook is registered in `.claude/settings.json` and read at session start, so it does not hook the session that installed it. The declared verbs above, not the hook, are the mechanism the current crewmate uses.

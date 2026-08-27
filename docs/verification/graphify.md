@@ -85,8 +85,8 @@ Shortest path (4 hops):
 
 `graphify claude install` unconditionally appends a "## graphify" section to the target worktree's `CLAUDE.md`, writes `.claude/settings.json` plus a `.claude/settings.json.graphify-bak`, and `graphify update` writes `graphify-out/`.
 None of that may reach a crewmate's PR, and none of the hygiene may reach the primary checkout: a linked worktree shares `.git/info/exclude` with the primary checkout (`git rev-parse --git-path info/exclude` resolves to the common git dir), so that file is deliberately not used.
-Instead `bin/fm-graphify-setup.sh` restores `CLAUDE.md` on every exit path including failure - deleting it when graphify created it in a repo that had none - writes a self-ignoring `graphify-out/.gitignore` containing `*`, writes a self-ignoring `.claude/.gitignore` covering `settings.json.graphify-bak` (and `settings.json` when that file is untracked or newly created), and marks a *tracked* `.claude/settings.json` `skip-worktree` since it must keep the hook registration.
-The skip-worktree mark's known interaction with a later rebase, and its recovery command, are recorded in the `codebase-graph` skill.
+Instead `bin/fm-graphify-setup.sh` restores `CLAUDE.md` on every exit path including failure - deleting it when graphify created it in a repo that had none - writes a self-ignoring `graphify-out/.gitignore` containing `*`, writes a self-ignoring `.claude/.gitignore` covering `settings.json.graphify-bak` (and `settings.json` when that file is untracked or newly created), and restores a *tracked* `.claude/settings.json` to its pre-install content, so the strict hook is retained only where that file is untracked and no git index state is ever hidden.
+That trade - a tracked settings.json loses the hook rather than risking a crewmate's own settings.json edit being invisible to `git status` - is recorded in the `codebase-graph` skill.
 
 Checked 2026-08-27 by running `bin/fm-graphify-setup.sh .` twice against this repository's own worktree:
 
@@ -107,7 +107,7 @@ Re-checked 2026-08-27 in three throwaway repos to cover the paths this repositor
 
 ```text
 repo with no CLAUDE.md and no .claude/   -> exit 0; CLAUDE.md absent again; .claude/{settings.json,.gitignore} ignored
-repo with tracked CLAUDE.md + settings.json -> exit 0; md5sum -c CLAUDE.md OK; hook still registered in settings.json (skip-worktree)
+repo with tracked CLAUDE.md + settings.json -> exit 0; md5sum -c CLAUDE.md OK; settings.json restored, no hook left, no index state touched
 graphify stub that appends to CLAUDE.md then exits 3 -> exit 3 propagated; CLAUDE.md restored by the EXIT trap
 ```
 An incremental rerun after the first build cost `real 0m4.231s` on this repository, so a rebuild after edits stays in the same few-seconds band as the cold build.
