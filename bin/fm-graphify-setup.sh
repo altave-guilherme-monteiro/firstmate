@@ -37,7 +37,11 @@ crewmate's PR, and nothing here writes outside the target worktree (a linked
 worktree shares .git/info/exclude with the primary checkout, so that file is
 deliberately not touched). graphify-out/ is made self-ignoring with its own
 graphify-out/.gitignore, written before the build starts so an interrupted or
-failed build leaves nothing un-ignored. CLAUDE.md, which graphify appends its
+failed build leaves nothing un-ignored. Coverage is checked with
+`git check-ignore`, not file existence, so a repo that already ships a partial
+.gitignore gets the missing entries appended rather than silently skipped. A
+tracked ignore file is never edited: the build errors out instead, and the hook
+install is skipped, so no change of the crewmate's is ever touched. CLAUDE.md, which graphify appends its
 "## graphify" section to, is restored byte-for-byte on every exit path
 including failure, and deleted if graphify created it in a repo that had
 none, so fm-ensure-agents-md.sh's canonical pointer form survives.
@@ -46,7 +50,7 @@ The strict Claude Code hook is installed only when .claude/settings.json does
 not exist yet, so the file left behind is entirely graphify's and no content
 of the crewmate's can be hidden by ignoring it. In that case a self-ignoring
 .claude/.gitignore covering settings.json and settings.json.graphify-bak is
-written before the install, and the script says so on stdout: a task that
+ensured before the install, and the script says so on stdout: a task that
 genuinely must commit .claude/settings.json can still do it with
 `git add -f .claude/settings.json`. When the file already exists, tracked or
 not, the install is skipped entirely - nothing is written, nothing is
@@ -74,6 +78,7 @@ if ! command -v graphify >/dev/null 2>&1; then
   if command -v pipx >/dev/null 2>&1; then
     echo "graphify not found; installing with pipx..." >&2
     pipx install graphifyy
+    command -v graphify >/dev/null 2>&1 || { echo "error: graphify is installed but not on PATH; ensure pipx's bin dir (usually ~/.local/bin) is on PATH, e.g. run 'pipx ensurepath' and start a new shell" >&2; exit 1; }
   else
     echo "error: graphify not found and pipx is not installed; install pipx or graphify manually (see https://github.com/Graphify-Labs/graphify)" >&2
     exit 1
@@ -83,16 +88,26 @@ fi
 ensure_self_ignoring() {
   IGNORE_FILE=$1
   shift
-  [ -e "$IGNORE_FILE" ] && return 0
-  mkdir -p "$(dirname "$IGNORE_FILE")"
-  printf '%s\n' "$@" >"$IGNORE_FILE"
+  IGNORE_DIR=$(dirname "$IGNORE_FILE")
+  for SPEC in "$@"; do
+    PROBE=${SPEC%%=*}
+    PATTERN=${SPEC#*=}
+    git -C "$DIR" check-ignore -q "$IGNORE_DIR/$PROBE" && continue
+    git -C "$DIR" ls-files --error-unmatch "$IGNORE_FILE" >/dev/null 2>&1 && return 1
+    mkdir -p "$IGNORE_DIR"
+    printf '%s\n' "$PATTERN" >>"$IGNORE_FILE"
+  done
+  return 0
 }
 
 IN_GIT_WORKTREE=false
 git -C "$DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1 && IN_GIT_WORKTREE=true
 
 if [ "$IN_GIT_WORKTREE" = true ]; then
-  ensure_self_ignoring "$DIR/graphify-out/.gitignore" '*'
+  ensure_self_ignoring "$DIR/graphify-out/.gitignore" 'graph.json=*' || {
+    echo "error: graphify-out/ is not git-ignored and graphify-out/.gitignore is tracked in $DIR; ignore graphify-out/ yourself before building so the graph never reaches a PR" >&2
+    exit 1
+  }
 fi
 
 START=$(date +%s)
@@ -106,7 +121,10 @@ if [ -e "$DIR/.claude/settings.json" ]; then
 fi
 
 if [ "$IN_GIT_WORKTREE" = true ]; then
-  ensure_self_ignoring "$DIR/.claude/.gitignore" '.gitignore' 'settings.json' 'settings.json.graphify-bak'
+  ensure_self_ignoring "$DIR/.claude/.gitignore" '.gitignore=.gitignore' 'settings.json=settings.json' 'settings.json.graphify-bak=settings.json.graphify-bak' || {
+    echo "graphify strict hook skipped for $DIR: .claude/.gitignore is tracked and does not cover settings.json, so installing the hook would leave a committable artifact; ignore it yourself or run 'graphify claude install --strict' by hand"
+    exit 0
+  }
 fi
 
 CLAUDE_MD_BACKUP=""
@@ -129,4 +147,6 @@ trap restore_claude_md EXIT
 ( cd "$DIR" && graphify claude install --strict )
 
 echo "graphify strict hook installed for $DIR (takes effect for the next Claude Code session in this worktree)"
-echo "note: .claude/settings.json is git-ignored in this worktree; use 'git add -f .claude/settings.json' if your task must commit it"
+if [ "$IN_GIT_WORKTREE" = true ]; then
+  echo "note: .claude/settings.json is git-ignored in this worktree; use 'git add -f .claude/settings.json' if your task must commit it"
+fi

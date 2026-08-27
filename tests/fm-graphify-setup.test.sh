@@ -141,7 +141,39 @@ test_non_git_directory_still_builds() {
   pass "fm-graphify-setup.sh: a directory outside a git worktree still gets a graph"
 }
 
+test_partial_preexisting_ignore_files_are_extended() {
+  local repo out
+  repo="$TMP_ROOT/partial-ignore"
+  new_repo "$repo"
+  commit_all "$repo"
+  mkdir -p "$repo/.claude" "$repo/graphify-out"
+  printf 'settings.local.json\n' > "$repo/.claude/.gitignore"
+  printf 'stale.json\n' > "$repo/graphify-out/.gitignore"
+  out=$(run_setup "$repo" env) || fail "setup failed with partial pre-existing ignore files: $out"
+  assert_worktree_clean "$repo" "a partial pre-existing .gitignore let graphify artifacts stay committable"
+  assert_present "$repo/.claude/settings.json" "the strict hook install did not run in a repo without settings.json"
+  assert_contains "$(cat "$repo/.claude/.gitignore")" "settings.local.json" \
+    "the pre-existing ignore entry was clobbered"
+  pass "fm-graphify-setup.sh: partial pre-existing ignore files gain the missing graphify entries"
+}
+
+test_tracked_ignore_file_is_never_edited() {
+  local repo out
+  repo="$TMP_ROOT/tracked-ignore"
+  new_repo "$repo"
+  mkdir -p "$repo/.claude"
+  printf 'settings.local.json\n' > "$repo/.claude/.gitignore"
+  commit_all "$repo"
+  out=$(run_setup "$repo" env) || fail "setup failed with a tracked .claude/.gitignore: $out"
+  assert_worktree_clean "$repo" "setup edited a tracked .claude/.gitignore or leaked the hook artifacts"
+  assert_absent "$repo/.claude/settings.json" "the hook was installed even though settings.json could not be ignored"
+  assert_contains "$out" "skipped" "the skipped hook install was not reported"
+  pass "fm-graphify-setup.sh: a tracked .gitignore is left alone and the hook install is skipped"
+}
+
 test_fresh_repo_leaves_no_committable_artifact
+test_partial_preexisting_ignore_files_are_extended
+test_tracked_ignore_file_is_never_edited
 test_ignored_settings_json_is_still_committable_on_demand
 test_existing_settings_json_is_never_touched_or_hidden
 test_failed_install_still_restores_claude_md
