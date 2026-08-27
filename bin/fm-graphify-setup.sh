@@ -43,7 +43,9 @@ and deleted if graphify created it in a repo that had none, so
 fm-ensure-agents-md.sh's canonical pointer form survives. graphify's
 .claude/settings.json.graphify-bak, and .claude/settings.json itself when it
 is untracked or newly created, are covered by a self-ignoring
-.claude/.gitignore (written only if that file does not already exist).
+.claude/.gitignore, written before the install runs so the coverage also
+holds when the install itself fails (written only if that file does not
+already exist).
 
 When .claude/settings.json is tracked it must keep the hook registration to
 be useful, so it is marked skip-worktree instead: `git add -A` and
@@ -123,15 +125,18 @@ if [ "$IN_GIT_WORKTREE" = true ] &&
   SETTINGS_TRACKED=true
 fi
 
-( cd "$DIR" && graphify claude install --strict )
-
 if [ "$IN_GIT_WORKTREE" = true ]; then
   if [ "$SETTINGS_TRACKED" = true ]; then
-    git -C "$DIR" update-index --skip-worktree .claude/settings.json
     ensure_self_ignoring "$DIR/.claude/.gitignore" '.gitignore' 'settings.json.graphify-bak'
   else
     ensure_self_ignoring "$DIR/.claude/.gitignore" '.gitignore' 'settings.json' 'settings.json.graphify-bak'
   fi
+fi
+
+( cd "$DIR" && graphify claude install --strict )
+
+if [ "$IN_GIT_WORKTREE" = true ] && [ "$SETTINGS_TRACKED" = true ]; then
+  git -C "$DIR" update-index --skip-worktree .claude/settings.json
 fi
 
 echo "graphify strict hook installed for $DIR (takes effect for the next Claude Code session in this worktree)"
