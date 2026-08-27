@@ -53,7 +53,8 @@ The strict Claude Code hook is installed only when .claude/settings.json does
 not exist yet, so the file left behind is entirely graphify's and no content
 of the crewmate's can be hidden by ignoring it. In that case a self-ignoring
 .claude/.gitignore covering settings.json and settings.json.graphify-bak is
-ensured before the install, and the script says so on stdout: a task that
+ensured before the install - an ignore file this script did not create keeps
+its own visibility, only the missing entries are appended - and the script says so on stdout: a task that
 genuinely must commit .claude/settings.json can still do it with
 `git add -f .claude/settings.json`. When the file already exists, tracked or
 not, the install is skipped entirely - nothing is written, nothing is
@@ -100,7 +101,8 @@ ensure_self_ignoring() {
   IGNORE_FILE=$1
   shift
   IGNORE_DIR=$(dirname "$IGNORE_FILE")
-  IGNORE_FILE_WRITTEN=false
+  IGNORE_FILE_IS_OURS=false
+  [ -e "$IGNORE_FILE" ] || IGNORE_FILE_IS_OURS=true
   for SPEC in "$@"; do
     PROBE=${SPEC%%=*}
     PATTERN=${SPEC#*=}
@@ -108,9 +110,8 @@ ensure_self_ignoring() {
     git -C "$DIR" ls-files --error-unmatch "$IGNORE_FILE" >/dev/null 2>&1 && return 1
     mkdir -p "$IGNORE_DIR"
     printf '%s\n' "$PATTERN" >>"$IGNORE_FILE"
-    IGNORE_FILE_WRITTEN=true
   done
-  if [ "$IGNORE_FILE_WRITTEN" = true ] && ! git -C "$DIR" check-ignore -q "$IGNORE_FILE"; then
+  if [ "$IGNORE_FILE_IS_OURS" = true ] && [ -e "$IGNORE_FILE" ] && ! git -C "$DIR" check-ignore -q "$IGNORE_FILE"; then
     printf '%s\n' '.gitignore' >>"$IGNORE_FILE"
   fi
   return 0
@@ -144,14 +145,11 @@ if [ "$IN_GIT_WORKTREE" = true ]; then
 fi
 
 CLAUDE_MD_BACKUP=""
-if [ -f "$DIR/CLAUDE.md" ]; then
-  CLAUDE_MD_BACKUP=$(mktemp)
-  cp "$DIR/CLAUDE.md" "$CLAUDE_MD_BACKUP"
-fi
-
+CLAUDE_MD_CAPTURED=false
 CLAUDE_MD_RESTORED=false
 restore_claude_md() {
   [ "$CLAUDE_MD_RESTORED" = true ] && return 0
+  [ "$CLAUDE_MD_CAPTURED" = true ] || return 0
   CLAUDE_MD_RESTORED=true
   if [ -n "$CLAUDE_MD_BACKUP" ]; then
     cp "$CLAUDE_MD_BACKUP" "$DIR/CLAUDE.md"
@@ -167,6 +165,12 @@ restore_claude_md_and_die() {
 }
 trap restore_claude_md EXIT
 trap restore_claude_md_and_die INT TERM HUP
+
+if [ -f "$DIR/CLAUDE.md" ]; then
+  CLAUDE_MD_BACKUP=$(mktemp)
+  cp "$DIR/CLAUDE.md" "$CLAUDE_MD_BACKUP"
+fi
+CLAUDE_MD_CAPTURED=true
 
 ( cd "$DIR" && graphify claude install --strict )
 

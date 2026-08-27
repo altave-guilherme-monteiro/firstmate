@@ -174,10 +174,13 @@ test_partial_preexisting_ignore_files_are_extended() {
   printf 'settings.local.json\n' > "$repo/.claude/.gitignore"
   printf 'stale.json\n' > "$repo/graphify-out/.gitignore"
   out=$(run_setup "$repo" env) || fail "setup failed with partial pre-existing ignore files: $out"
-  assert_worktree_clean "$repo" "a partial pre-existing .gitignore let graphify artifacts stay committable"
   assert_present "$repo/.claude/settings.json" "the strict hook install did not run in a repo without settings.json"
+  git -C "$repo" check-ignore -q .claude/settings.json || fail "the graphify hook artifact stayed committable"
+  git -C "$repo" check-ignore -q .claude/settings.json.graphify-bak || fail "the graphify backup artifact stayed committable"
   assert_contains "$(cat "$repo/.claude/.gitignore")" "settings.local.json" \
     "the pre-existing ignore entry was clobbered"
+  assert_contains "$(git -C "$repo" status --short -uall)" "?? .claude/.gitignore" \
+    "the developer's own untracked .claude/.gitignore was hidden from git status"
   pass "fm-graphify-setup.sh: partial pre-existing ignore files gain the missing graphify entries"
 }
 
