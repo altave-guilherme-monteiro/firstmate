@@ -80,6 +80,7 @@ config/cmux-socket-password  optional cmux control-socket password; LOCAL, gitig
 config/wedge-alarm  optional away-mode wedge-alarm active-alert directives; LOCAL, gitignored; absent means auto (macOS Notification Center when available); see docs/wedge-alarm.md
 config/watched-tools.json  optional list of the tools this home depends on, read by the update check armed with bin/fm-tool-update-check.sh; LOCAL, gitignored, firstmate-maintained but human-editable, and NOT inherited by secondmate homes; see docs/configuration.md "Watched tool updates"
 config/x-mode.env    generated Relay watcher cadence; LOCAL, gitignored; source before arming watcher when present
+config/youtrack-token config/youtrack-url config/youtrack-queries  optional YouTrack board integration; LOCAL, gitignored; absent token means the tracker is unconfigured and every board path stays silent (section 7, `bin/fm-youtrack.sh --help`)
 data/                personal fleet records; LOCAL, gitignored as a whole
   backlog.md         task queue, dependencies, history
   captain.md         this home's domain-local captain preferences and working style; LOCAL, gitignored, canonical even if harness memory mirrors it, and updated with inspect-then-update
@@ -163,7 +164,7 @@ If the session lock cannot be acquired and verified, report its exact diagnostic
 A lock-refused session must not spawn, steer, merge, drain the wake queue, repair supervision, repair a checkout, or perform any other fleet mutation.
 
 The digest itself makes no external-network call and never waits for one.
-Every network check a session start owes - GitHub auth, dead-secondmate relaunch, secondmate convergence, pending handoff delivery, and project clone refresh - runs off the digest's blocking path in a bounded worker owned by `bin/fm-startup-network.sh` and is reported in the digest's own `NETWORK CHECKS` section.
+Every network check a session start owes - GitHub auth, dead-secondmate relaunch, secondmate convergence, pending handoff delivery, project clone refresh, and (when a tracker is configured) the board divergence report - runs off the digest's blocking path in a bounded worker owned by `bin/fm-startup-network.sh` and is reported in the digest's own `NETWORK CHECKS` section.
 When that section reports its checks still in progress it names exactly what is unconfirmed; treat none of those as passed until `bin/fm-startup-network.sh report` returns the finished result, while a failed or otherwise actionable result also arrives as a `check: startup-network` wake.
 
 1. **Lock** - acquires the per-home session lock first, before anything mutates shared state, then starts the deferred network stage above.
@@ -298,6 +299,14 @@ A current explicit captain instruction wins; otherwise the project's registry en
 On a `no-mistakes-prod-only` project, classify the task's surface: internal-only tooling, automation, contributor or operator process, and release or submission work ships `direct-PR`, while product-facing, mixed, and uncertain work ships `no-mistakes`; never infer internal-only from file location or project name.
 An unregistered project or absent registry resolves to `no-mistakes` with yolo off, and the registration gap goes to the captain.
 Record the resulting mode, `yolo` merge posture, and the one-line reason for any deviation in the backlog item note.
+
+When the tracker is configured (`config/youtrack-token` present), resolve every task to a tracker issue at intake: search for a matching issue, name the single confident match in plain language, or present the small candidate set for the captain to pick from.
+When no issue exists, draft one against the tracker's mandatory template and create it only on the captain's explicit approval; a created issue is rejected by this rule unless it carries the full template - purpose as a user story ("As a \<persona\>, I need \<capability\>, so that \<value\>"), stakeholder requirements in EARS syntax with `REQ_{Product}_{Summary}` identifiers, and acceptance criteria as Gherkin scenarios with `VAL_{Product}_{TestCase}` identifiers that each name the `REQ_` they trace to - a placeholder, a one-line title, or unexecutable criteria is not an acceptable issue.
+Choose Type deliberately per the tracker standard, never by size habit: Epic is a high-level product/feature request or change-request epic sized small enough to deliver customer value in one deployment, Task is value-add sprintable work in hours (including governance and audit artifacts), Toil is operational waste, bugs, manual rework, and reactive support complaints; an Epic gets the same mandatory template as a Task.
+Pick Type, Team, and every applicable Subsystem, Product, and client/programme field from values that already exist on the instance, never inventing a new enum value; when none fits, that is a captain question, not a new value.
+Estimation and Assignee must be set before an issue may move to In Progress, and spent time before Done, because the tracker's own gatekeeper enforces exactly that - never create work this rule cannot legally transition.
+Work never starts off-board: a request that resolves to no issue and that the captain has not approved creating one for is stopped and returned to the captain - this is a guardrail violation to interrupt him for, same footing as the hard rules in section 1.
+As work moves, its issue moves with it: state transitions, the review and validation tags at those phases, the recorded pull request, and the evidence of acceptance appended before the issue closes.
 
 Treat file or subsystem overlap as a risk signal rather than an automatic reason to wait, and dispatch isolated work immediately with no concurrency cap when each change can be independently implemented and validated and the selected delivery path can reconcile ordinary rebases or conflicts.
 Serialize only for a true semantic dependency, shared mutable external state, incompatible concurrent migration, or another concrete condition that makes independent progress or reconciliation unsafe; same-file editing alone is insufficient, and genuine blockers remain durable.

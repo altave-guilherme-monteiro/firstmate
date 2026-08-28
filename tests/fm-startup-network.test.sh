@@ -691,6 +691,21 @@ GITHUB_TOKEN=ghp_supersecretvalue" \
   pass "fm-startup-network: the timing artifact cannot carry a command line or forge records"
 }
 
+test_board_report_is_silent_when_tracker_unconfigured() {
+  local rec home root log report
+  rec=$(new_world board-report-unconfigured)
+  IFS='|' read -r home root log <<EOF
+$rec
+EOF
+  FM_FAKE_BOOTSTRAP_LOG="$log" run_stage "$home" "$root" run --locked 0
+  report=$(run_stage "$home" "$root" report)
+  assert_contains "$report" "(silent - no problems found)" \
+    "board report addition must not change the unconfigured digest: $report"
+  assert_not_contains "$report" "BOARD" \
+    "no config/youtrack-token means the deferred stage prints zero BOARD bytes"
+  pass "fm-startup-network: the network-checks report is byte-identical when no tracker is configured"
+}
+
 test_wait_fails_without_a_published_stage
 test_start_returns_without_holding_the_callers_stdout
 test_harvest_acknowledgement_suppresses_the_wake_and_no_claim_produces_it
@@ -709,4 +724,5 @@ test_records_share_one_origin_so_offsets_form_a_timeline
 test_timings_are_published_and_only_the_on_demand_report_prints_them
 test_a_bounded_run_still_publishes_the_timings_it_managed_to_record
 test_the_timing_artifact_cannot_carry_a_command_line_or_forge_records
+test_board_report_is_silent_when_tracker_unconfigured
 echo "# fm-startup-network.test.sh: all assertions passed"

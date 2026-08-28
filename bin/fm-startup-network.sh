@@ -479,6 +479,7 @@ EOF
       "$SCRIPT_DIR/fm-bootstrap.sh" >"$out" 2>&1 || rc=$?
   fi
   [ "$lease_held" -eq 0 ] || fm_lock_release "$STATE/.lock.acquire"
+  fm_run_timed 30 "$SCRIPT_DIR/fm-board-report.sh" >> "$out" 2>&1 || true
   # The bounded run as a whole, so the per-phase records can be read against the
   # total even when the bound cut some of them off.
   fm_timing_record stage network-checks "$stage_started" "$phases"
