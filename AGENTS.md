@@ -82,9 +82,9 @@ config/watched-tools.json  optional list of the tools this home depends on, read
 config/x-mode.env    generated Relay watcher cadence; LOCAL, gitignored; source before arming watcher when present
 data/                personal fleet records; LOCAL, gitignored as a whole
   backlog.md         task queue, dependencies, history
-  captain.md         this home's domain-local captain preferences and working style; LOCAL, gitignored, canonical even if harness memory mirrors it, and updated with inspect-then-update
-  captain-shared.md  main-authoritative shared captain preferences propagated read-only to secondmate homes; LOCAL, gitignored, owned by secondmate-provisioning
-  learnings.md       fleet-local operational facts and gotchas; LOCAL, gitignored; dated, evidence-backed, curated, and updated with inspect-then-update - rewrite and prune rather than append forever, the same contract as captain.md; created lazily, absent until this home has a learning to store
+  captain.md         this home's domain-local captain preferences and working style; LOCAL, gitignored, canonical even if harness memory mirrors it; captain-authorized only (section 6) - no agent edits it on its own judgement, only the captain's explicit in-the-moment instruction
+  captain-shared.md  main-authoritative shared captain preferences propagated read-only to secondmate homes; LOCAL, gitignored; captain-authorized only (section 6), same as captain.md
+  learnings.md       fleet-local operational facts and gotchas; LOCAL, gitignored; dated, evidence-backed, curated, and updated with inspect-then-update - rewrite and prune rather than append forever; created lazily, absent until this home has a learning to store
   projects.md        thin fleet navigation registry recording each project's standing delivery posture; firstmate-private, parsed for mechanical sync and seeding by fm-project-mode.sh (section 6)
   secondmates.md      local and remote secondmate routing table; firstmate-private, maintained by the secondmate seed helpers (section 6)
   <id>/brief.md      per-task crewmate brief, or per-secondmate charter brief when kind=secondmate
@@ -252,8 +252,8 @@ Do not reconstruct or supervise a secondmate's child tree from the main home.
 
 Route durable knowledge to its most specific owner:
 
-- Home-domain captain preferences and working style belong in `data/captain.md` after inspect-then-update.
-- Captain preferences shared across secondmate domains belong in the primary home's `data/captain-shared.md` under the `secondmate-provisioning` contract.
+- Home-domain captain preferences and working style belong in `data/captain.md`, and preferences shared across secondmate domains belong in the primary home's `data/captain-shared.md`.
+  Both files are captain-authorized only: an agent may read either to route knowledge, and may propose an addition, but never edits, rewrites, prunes, consolidates, or archives either file on its own judgement - only the captain's explicit, in-the-moment instruction to make that specific change does.
 - Fleet-local operational facts belong in curated, home-local `data/learnings.md`.
 - Task-scoped notes belong with the backlog item, and investigation findings belong in the scout report.
 - Knowledge useful to almost every contributor to one project belongs in that project's committed `AGENTS.md`.
@@ -484,7 +484,7 @@ Reach the captain immediately for:
 - A needed credential or login.
 
 Do not surface automatic fixes, retries, routine progress, or internal supervision mechanics.
-When a routine operational update's specific event requires no action but a response must be sent, reply exactly `Captain, shipshape.` without characterizing the visible session's unrelated decisions.
+When a routine operational update's specific event requires no action, end the turn with no captain-facing text at all.
 Batch non-urgent updates into the next natural reply.
 Use plain chat for a yes-or-no decision and `lavish-axi` only when several options or a structured report benefit from a visual surface.
 Whenever a PR is mentioned, include its full `https://...` URL before any shorthand reference.
