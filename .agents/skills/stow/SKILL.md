@@ -42,14 +42,18 @@ The tier names say what the pass does with an entry:
 
 Marking rules:
 
-- Tier defaults are file-scoped: entries in `data/captain.md` and `data/captain-shared.md` default to `pinned` because preferences and authority boundaries do not age, and entries in `data/learnings.md` default to `aging` because operational facts must re-prove themselves.
+- **Hard rule: `data/captain.md` and `data/captain-shared.md` are captain-authorized only.**
+  This pass may read either file to route knowledge and detect duplication, and may propose an addition to the captain, but must never write, rewrite, prune, archive, or consolidate either file on its own judgement - only the captain's explicit, in-the-moment instruction to make that specific change does.
+  The only receipt actions for these two files are `unchanged` or `proposed`; every other step below that curates, retiers, decays, or offloads an "editable memory file" means `data/learnings.md` only.
+- Tier defaults are file-scoped: entries in `data/learnings.md` default to `aging` because operational facts must re-prove themselves.
 - An entry matching its file's `pinned` default carries no marker at all; every `aging` and `perishable` entry always carries its dated marker, whose letter names the tier, so a clock-carrying entry is never ambiguous with unmarked legacy material.
 - Marker and header-pointer bytes count toward the startup-memory budget: the pass's own bookkeeping is costed content, never free, which is why the spellings above are as short as they are.
 - Each memory file's header carries at most a one-line pointer naming this skill as the scheme owner, such as `<!-- memory tiers: see the stow skill -->`.
   This skill text is the single owner of tier semantics, marker spellings, and clocks, and no memory file header may restate them.
   The one exception is the `config/stow-pass-horizon` presence flag below, which turns a single extra horizon on for this home and changes nothing else on this page.
-- Inspect each editable file's header pointer on every pass and add or correct it; for a read-only `data/captain-shared.md`, leave the file byte-identical and route a missing or outdated pointer to the primary owner.
-  The required receipt action for that file is `routed`, not `unchanged`; name the ownership exception and do not declare the session reset-safe.
+- Inspect `data/learnings.md`'s header pointer on every pass and add or correct it.
+  For `data/captain.md` and `data/captain-shared.md`, leave both byte-identical and propose a missing or outdated pointer to the captain instead of editing directly.
+  The required receipt action for either file is `proposed`, not `unchanged`, until the captain acts on it.
 - A pre-existing missing or hand-dropped marker is never grounds for destructive treatment: it means the file's default tier; an unmarked entry in a default-pinned file is simply pinned, while an unmarked entry in a file whose default tier carries a clock follows the migration rule below.
 
 Decay advances only when a pass runs, so a home stowed less often than a clock experiences that clock at its stow interval.
@@ -85,10 +89,10 @@ Every `/stow` invocation performs this complete pass, even when the session cont
    Report that concrete exception and do not call the session reset-safe.
 2. Read every current memory file completely: `data/captain.md`, `data/captain-shared.md`, and `data/learnings.md`.
    Treat an absent local file as absent, not as an invitation to manufacture content.
-   In a primary home, all three are curation inputs under their existing ownership rules.
-   In a secondmate home, `data/captain-shared.md` is a read-only primary-owned input: count it, never edit it, and curate only the editable local files.
-   Every mutation in the rest of this pass, including reinforcement, retiering, decay archival, legacy migration, consolidation, budget archival, and offload, applies only to an editable memory file.
-   When a read-only shared entry appears to require one of those changes, leave it untouched, report the required change as an ownership exception, and route it to the primary owner.
+   `data/captain.md` and `data/captain-shared.md` are captain-authorized only in every home: count them, read them to route knowledge and detect duplication, and never edit, rewrite, prune, archive, or consolidate either one on this pass's own judgement.
+   `data/learnings.md` is the only editable curation input.
+   Every mutation in the rest of this pass, including reinforcement, retiering, decay archival, legacy migration, consolidation, budget archival, and offload, applies only to `data/learnings.md`.
+   When a captain-authorized file appears to need a change, leave it untouched and record a `proposed` addition in the completion receipt instead.
 3. Build one whole-file retention plan before editing, ordered by likelihood of informing a future session.
    Keep in always-loaded memory only current captain preferences, authority and safety boundaries, recurring working style, fleet-wide or frequently relevant operating facts, and concise pointers that are expensive to rediscover.
    Prefer offloading current but conditional, narrow, project-specific, or context-specific material to a live on-demand owner, and archive stale, superseded, or low-recurrence material to the cold tier.
@@ -105,7 +109,7 @@ Every `/stow` invocation performs this complete pass, even when the session cont
    Re-confirm a stale `perishable` entry against its named condition: still open means refresh the date, while resolved, expired, or no longer checkable means archive it in this pass.
    Promote `perishable` to `aging` when its condition keeps proving durable past its expected life, and retier in place when a supersession changes an entry's lifetime.
    `pinned` is exempt from this automatic decay step entirely.
-6. Consolidate every editable memory file as needed, not only the file apparently related to a new finding.
+6. Consolidate `data/learnings.md` as needed, not only the part apparently related to a new finding.
    Prefer one concise current rule or authoritative pointer over duplicate prose.
    Archive completed incident and release chronology, stale versions and paths, transient task state, resolved alternatives, old metrics, and report-sized procedures; merge or remove only superseded claims and duplicates whose facts are preserved elsewhere.
    Never plainly remove a unique current fact: every such exit must archive it with provenance in the recoverable cold tier or relocate it to a live JIT owner or a consolidation merge that preserves the fact.
@@ -158,7 +162,7 @@ The offload sweep runs whenever the pass is still over budget after decay archiv
 It is an immediate reduction step for eligible non-pinned conditional material that can be added to an already-existing allowed owner, not a deferred proposal that leaves the pass over budget.
 Every test must hold for a candidate:
 
-- Editable source: this home owns the memory file and may relocate the entry; a read-only shared entry is routed to its primary owner instead.
+- Editable source: `data/learnings.md` only; `data/captain.md` and `data/captain-shared.md` are captain-authorized only (see Marking rules) and are never autonomously relocated, only proposed.
 - Durable: not `perishable`, not stale, and expected to remain true for months.
 - Eligible by authority: only a non-pinned, dated `aging` entry that is not pending offload may be autonomously relocated to an already-existing allowed owner, while a `pinned` entry may be proposed only for explicit, per-item captain-approved relocation and can never be archived or autonomously offloaded for budget relief.
 - Conditional: a one-line nameable trigger exists, and a session that never touches that trigger runs no risk from omitting the fact.
@@ -184,7 +188,7 @@ Approved project-level destinations are not produced by stow: they ship normally
 - A project-level skill in the project's own repository, for situation-conditional knowledge within one project, through the same ship-task path.
 
 Forbidden destinations: any firstmate-repo-tracked skill per the hard rule; firstmate's own `AGENTS.md`, which is always-loaded for every fleet session; `docs/` alone, which is never agent-loaded on demand, though a skill body may point into docs for depth; and any committed surface for private content.
-A local skill exists only in this home, so offloading an entry out of `data/captain-shared.md` removes it from every inheriting home's always-injected memory: the proposal must say so, and the default for shared entries is keep.
+A local skill exists only in this home, so an approved offload out of `data/captain-shared.md` removes it from every inheriting home's always-injected memory: the proposal must say so, and the default for shared entries is keep.
 
 ### Flow: reduce, approve, migrate, remove
 
@@ -216,10 +220,8 @@ A local skill exists only in this home, so offloading an entry out of `data/capt
    AGENTS.md section 6 is the source of truth for destinations.
    Do not re-derive or duplicate that mapping here.
 3. **Write within the existing boundaries.**
-   - Captain preferences and fleet-local operational facts belong in the destination selected by AGENTS.md after the required whole-file curation pass.
-     Create `data/learnings.md` only for a genuinely new local learning with no stronger owner.
-   - In a primary home, curate shared captain preferences only under the existing primary-authoritative shared-preference contract.
-     In a secondmate home, route a newly discovered shared preference to the main firstmate through marked status or a document pointer instead of editing the inherited file.
+   - A fleet-local operational fact with no stronger owner belongs in `data/learnings.md` after the required whole-file curation pass.
+   - A newly noticed captain preference is never written to `data/captain.md` or `data/captain-shared.md` directly: propose it to the captain per the Marking rules hard rule, routing a shared preference found in a secondmate home through the main firstmate first.
    - Project-intrinsic knowledge never goes directly into a project's `AGENTS.md`.
      Route it through a normal ship task so a crewmate records it with `bin/fm-ensure-agents-md.sh` and the project's delivery path.
    - Knowledge general to every Firstmate user belongs in this repo's shared tracked material through the normal branch, no-mistakes, PR, and captain-merge path.
@@ -229,7 +231,7 @@ A local skill exists only in this home, so offloading an entry out of `data/capt
    - File each undone next step as a queued backlog item with a genuine `blocked-by` dependency when applicable.
 4. **Use inspect-then-update.**
    For every retained fact, ask which current statement it supersedes, whether it can be a one-sentence rewrite, and whether a stale entry should be refreshed, archived, or routed to an existing stronger owner.
-   The only graduation moves are promotion to tracked shared material through a PR, folding a learning into the captain-preference destination selected by AGENTS.md, archiving a stale entry to `data/memory-archive.md`, autonomous offload of an eligible non-pinned conditional entry to an already-existing allowed owner through the reduce flow above, captain-approved offload of a pinned durable conditional entry to a JIT-loaded owner executed through the migration step above, or deletion of an entry that is a duplicate or already preserved through a stronger existing owner.
+   The only graduation moves are promotion to tracked shared material through a PR, proposing a learning to the captain as a captain-preference addition (never folded in automatically), archiving a stale entry to `data/memory-archive.md`, autonomous offload of an eligible non-pinned conditional entry to an already-existing allowed owner through the reduce flow above, captain-approved offload of a pinned durable conditional entry to a JIT-loaded owner executed through the migration step above, or deletion of an entry that is a duplicate or already preserved through a stronger existing owner.
    A stale unique fact is never deleted, only archived.
    Do not invent another graduation path.
 
@@ -247,9 +249,9 @@ Where the right correction is a judgment you cannot make, leave the record alone
 ## One-time migration of unmarked entries
 
 Legacy entries carry no markers; an unmarked entry is its file's default tier with unknown age, and unknown age is not guilt.
-The first pass after adoption performs a one-time revalidation sweep of editable memory files instead of blanket restamping, while a read-only shared file remains untouched and any required change is routed to its primary owner:
+The first pass after adoption performs a one-time revalidation sweep of `data/learnings.md` instead of blanket restamping, while `data/captain.md` and `data/captain-shared.md` remain untouched per the Marking rules hard rule:
 
-- In `data/captain.md` and `data/captain-shared.md`, every unmarked entry is simply default-pinned and remains exempt from the aging clock, legacy grace cycle, and archive-by-age; consolidation still applies, and only genuine tier deviations receive markers.
+- `data/captain.md` and `data/captain-shared.md` need no marker migration: they carry no stow-managed tier, and any unmarked entry in either file is left exactly as it is.
 - In `data/learnings.md`, stamp each entry the pass can confirm current with its compact dated marker for today, using a deviating tier letter or `<!--P-->` only where the entry genuinely deviates from the `aging` default.
 - On the first pass that cannot cite independent current-session evidence for an unmarked entry in `data/learnings.md`, add `<!--g-->` as its trailing marker and retain it through the rest of that pass; carrying no date, it persists that the entry has consumed exactly one grace cycle without pretending it was reinforced.
 - Only an entry that already carried `<!--g-->` when this invocation began is on the next-pass branch: replace that marker with the normal dated tier marker if independent current-session evidence confirms the entry; otherwise archive it with provenance `legacy-unvalidated`.
@@ -260,7 +262,7 @@ The first pass after adoption performs a one-time revalidation sweep of editable
 Report the outcome in plain captain-facing language with all of these facts:
 
 - effective startup-memory budget and total estimated tokens before and after;
-- one or more actions for each of `data/captain.md`, `data/captain-shared.md`, and `data/learnings.md`, using only `unchanged`, `added`, `rewritten`, `pruned`, `routed`, `archived`, or `proposed-offload`; adding or replacing a migration marker is `rewritten`, never a new action verb such as `migrated`;
+- one or more actions for each of `data/captain.md`, `data/captain-shared.md`, and `data/learnings.md`; `data/captain.md` and `data/captain-shared.md` accept only `unchanged` or `proposed`, while `data/learnings.md` also accepts `added`, `rewritten`, `pruned`, `archived`, or `proposed-offload`; adding or replacing a migration marker is `rewritten`, never a new action verb such as `migrated`;
 - each durable finding filed outside memory and its authoritative owner;
 - each archived entry's reason, each autonomous offload's live destination and actual relief, and, when a pinned candidate was proposed, the `proposed-offload` section with every candidate's fields;
 - every unresolved exception, including a primary-owned shared-file constraint in a secondmate home, and every concrete captain decision opened for an over-budget result;
@@ -293,7 +295,7 @@ Act on each home by its reported `transport`:
   Relaunching that secondmate is a separate decision owned by `secondmate-provisioning`, never something `/stow` does on its own.
 - `unavailable` - that home's own accounting did not complete. Report the concrete exception and continue; a slow or unreachable home never blocks this home's `/stow`.
 
-A newly discovered shared captain preference still routes to the primary's `data/captain-shared.md` under the existing primary-authoritative contract, whichever home found it.
+A newly discovered shared captain preference is always proposed to the captain through the primary home, whichever home found it; `data/captain-shared.md` is captain-authorized only and is never edited automatically.
 Offload proposals and the cold archive are per-home: file proposals only in the home whose pass produced them, and never cascade either to another home.
 
 Extend the completion receipt with one entry per secondmate alongside the primary's own, carrying that home's budget before and after, its per-file actions, its exceptions, and whether that home swept itself or was curated from here.
