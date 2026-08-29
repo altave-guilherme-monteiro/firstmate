@@ -650,6 +650,24 @@ The published `lavish-axi poll` clears feedback destructively before returning i
 Never describe this path as at-least-once, no-loss, or lossless.
 `docs/verification/process-event-sources.md` holds the measurements and `.agents/skills/process-event-sources/SKILL.md` owns the handling procedure.
 
+### Recurring cadence: the delivery retrospective (bin/fm-retrospective.sh)
+
+`bin/fm-retrospective.sh` reports delivery over a trailing window from records this home already has; its own `--help` owns the report's contract.
+It is scheduled the same way any other deterministic recurring action is - a `when` condition->action watch, never a daemon or a cron installer.
+The condition is a time check against a marker the action itself touches, so the pair is self-contained and needs no change to the retrospective script:
+
+```sh
+bin/fm-procevent-when.sh arm retrospective \
+  --interval 21600 --stable 1 --deadline 1382400 \
+  --condition bash -c '[ ! -f state/.retrospective-last-run ] || [ $(( $(date +%s) - $(stat -c %Y state/.retrospective-last-run) )) -ge 1209600 ]' \
+  --action bash -c 'bin/fm-retrospective.sh > "data/retrospective-$(date -u +%Y-%m-%d).md"; touch state/.retrospective-last-run'
+```
+
+`1209600` is 14 days in seconds - match it to whatever cadence the captain wants (biweekly is `1209600`, weekly is `604800`); `--deadline` must exceed that cadence with a few days of slack (`1382400` above is 16 days) so the watch never gives up mid-cycle.
+Every `when` outcome is terminal (the skill's "Handling a wake" section owns this), so a fired retrospective retires its own registration.
+On that wake, read the written report, relay what changed to the captain per section 9's escalation etiquette, then re-arm the identical command above for the next cycle - this is the documented retire-then-rearm pattern, not a new mechanism.
+A first arm with no prior `state/.retrospective-last-run` fires on the first poll, so the initial report lands within one `--interval`.
+
 ## Spoken interface and captain inbox (config/voice-*, config/inbox-*)
 
 The spoken interface in [`docs/voice-relay.md`](voice-relay.md) and the model-backed subcommands of `bin/fm-inbox.sh` reach a paid API in a named account, so no region, model id or AWS profile is shipped as a tracked default.
