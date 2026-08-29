@@ -18,7 +18,9 @@ it runs fm-youtrack.sh queries once and reports, per configured query, how
 many matching issues are In Progress and how many are waiting on the
 captain, followed by a DIVERGENCE section covering both directions: a local
 backlog item with no issue reference, and a board issue that is In Progress
-with no matching local task. Makes no write calls to the tracker.
+with no matching local task. A read failure (bad token, unreachable host,
+every configured query failing) is reported as a read failure, distinct from
+a genuinely empty result. Makes no write calls to the tracker.
 USAGE
 }
 
@@ -29,7 +31,12 @@ esac
 TOKEN_FILE="$CONFIG/youtrack-token"
 [ -f "$TOKEN_FILE" ] && [ ! -L "$TOKEN_FILE" ] || exit 0
 
-QUERIES=$("$SCRIPT_DIR/fm-youtrack.sh" queries 2>/dev/null) || QUERIES=
+QUERIES=$("$SCRIPT_DIR/fm-youtrack.sh" queries 2>/dev/null)
+YT_RC=$?
+if [ "$YT_RC" -ne 0 ]; then
+  echo "BOARD: could not read the tracker (check config/youtrack-token and config/youtrack-queries) - this is a read failure, not an empty backlog"
+  exit 0
+fi
 if [ -z "$QUERIES" ]; then
   echo "BOARD: tracker is configured but no query returned any issue (check config/youtrack-queries)"
   exit 0

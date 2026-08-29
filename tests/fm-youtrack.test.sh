@@ -42,6 +42,10 @@ case "$url" in
     printf '%s' "${FM_FAKE_SAVED_BODY:-[]}" > "$out"
     printf '%s' "${FM_FAKE_SAVED_CODE:-200}"
     ;;
+  *'issues?query='*'BROKEN-QUERY-MARKER'*)
+    printf '%s' "${FM_FAKE_CURL_BODY:-{}}" > "$out"
+    printf '%s' "500"
+    ;;
   *'issues?query='*)
     printf '%s' "${FM_FAKE_ISSUES_BODY:-[]}" > "$out"
     printf '%s' "${FM_FAKE_ISSUES_CODE:-200}"
@@ -99,7 +103,7 @@ assert_empty_file "$CURL_LOG1" "queries without a token made no network call"
 pass "absent token file: every command refuses without a network call"
 
 HOME2=$(new_world bare-token)
-BARE_TOK="perm-bareA1"
+BARE_TOK="perm-2a8f9c1e4b6d7f80=.a9c31e88f42b7c05=.61df"
 printf '%s\n' "$BARE_TOK" > "$HOME2/config/youtrack-token"
 FAKEBIN2=$(fake_curl "$HOME2")
 HEADERS2="$HOME2/headers.log"
@@ -107,27 +111,28 @@ HEADERS2="$HOME2/headers.log"
 out=$(PATH="$FAKEBIN2:$PATH" FM_CONFIG_OVERRIDE="$HOME2/config" FM_HOME="$HOME2" \
   FM_FAKE_CURL_HEADERS="$HEADERS2" FM_FAKE_CURL_BODY='{"ok":true}' \
   "$ROOT/bin/fm-youtrack.sh" get /api/issues/FM-1 2>&1)
-expect_code 0 "$?" "get with a bare token succeeds"
+expect_code 0 "$?" "get with a realistic padded bare token succeeds"
 assert_contains "$out" '"ok":true' "get prints the raw response body"
 assert_grep "Authorization: Bearer $BARE_TOK" "$HEADERS2" \
-  "bare token line is sent as the bearer header"
+  "a bare token containing internal = characters is sent byte-for-byte, never split on ="
 assert_not_contains "$out" "$BARE_TOK" "get never prints the token on stdout/stderr"
 
 HOME3=$(new_world named-token)
-NAMED_TOK="perm-namedB2"
-printf 'MYLABEL=%s\n' "$NAMED_TOK" > "$HOME3/config/youtrack-token"
+NAMED_RAW_TOK="perm-7f4b1a9d2e6c8035=.d05e91ac3b7f4218=.9c02"
+NAMED_TOK="MYLABEL=$NAMED_RAW_TOK"
+printf '%s\n' "$NAMED_TOK" > "$HOME3/config/youtrack-token"
 FAKEBIN3=$(fake_curl "$HOME3")
 HEADERS3="$HOME3/headers.log"
 : > "$HEADERS3"
 out=$(PATH="$FAKEBIN3:$PATH" FM_CONFIG_OVERRIDE="$HOME3/config" FM_HOME="$HOME3" \
   FM_FAKE_CURL_HEADERS="$HEADERS3" FM_FAKE_CURL_BODY='{}' \
   "$ROOT/bin/fm-youtrack.sh" get /api/issues/FM-1 2>&1)
-expect_code 0 "$?" "get with a NAME=token line succeeds"
-assert_grep "Authorization: Bearer $NAMED_TOK" "$HEADERS3" \
-  "NAME=TOKEN form strips the label and sends only the token value"
-assert_not_contains "$out" "$NAMED_TOK" "get never prints the NAME=TOKEN value on stdout/stderr"
+expect_code 0 "$?" "get with a NAME=perm-... line succeeds"
+assert_grep "Authorization: Bearer $NAMED_RAW_TOK" "$HEADERS3" \
+  "NAME=perm-... form strips only the label, sending the full padded token value byte-for-byte"
+assert_not_contains "$out" "$NAMED_RAW_TOK" "get never prints the NAME=TOKEN value on stdout/stderr"
 
-pass "token file parsing: bare and NAME=TOKEN forms both authenticate without leaking"
+pass "token file parsing: a bare perm- token with internal = characters, and a NAME=perm-... form, both send the exact token bytes without truncation"
 
 HOME4=$(new_world post-body)
 printf 'perm-x\n' > "$HOME4/config/youtrack-token"
@@ -182,6 +187,43 @@ expect_code 1 "$?" "queries with only blank lines refuses"
 assert_contains "$out" "no usable entries" "queries names the empty configuration"
 
 pass "queries refuses cleanly when the queries file has no usable entries"
+
+HOME8=$(new_world all-queries-fail)
+printf 'perm-fails\n' > "$HOME8/config/youtrack-token"
+cat > "$HOME8/config/youtrack-queries" <<'EOF'
+Sprint Board
+project: FM State: Open
+EOF
+FAKEBIN8=$(fake_curl "$HOME8")
+out=$(PATH="$FAKEBIN8:$PATH" FM_CONFIG_OVERRIDE="$HOME8/config" FM_HOME="$HOME8" \
+  FM_FAKE_SAVED_CODE=401 FM_FAKE_ISSUES_CODE=401 \
+  "$ROOT/bin/fm-youtrack.sh" queries 2>&1)
+expect_code 1 "$?" "queries exits non-zero when every configured query fails to read"
+assert_contains "$out" "every configured query failed" \
+  "a total read failure is named distinctly from an empty result"
+assert_not_contains "$out" "no usable entries" \
+  "a total read failure is not reported as an empty/unconfigured queries file"
+
+pass "queries distinguishes a total read failure from a genuinely empty result"
+
+HOME9=$(new_world partial-query-failure)
+printf 'perm-partial\n' > "$HOME9/config/youtrack-token"
+cat > "$HOME9/config/youtrack-queries" <<'EOF'
+BROKEN-QUERY-MARKER
+project: FM State: Open
+EOF
+FAKEBIN9=$(fake_curl "$HOME9")
+ISSUES_BODY_9='[{"idReadable":"FM-9","summary":"Still readable","customFields":[
+  {"name":"Type","value":{"name":"Task"}},
+  {"name":"State","value":{"name":"Open"}}
+]}]'
+out=$(PATH="$FAKEBIN9:$PATH" FM_CONFIG_OVERRIDE="$HOME9/config" FM_HOME="$HOME9" \
+  FM_FAKE_ISSUES_BODY="$ISSUES_BODY_9" \
+  "$ROOT/bin/fm-youtrack.sh" queries 2>&1)
+expect_code 0 "$?" "queries succeeds when at least one configured entry still reads"
+assert_contains "$out" "FM-9" "the successful entry's rows still print"
+
+pass "a partial query failure still exits 0 and reports what succeeded"
 
 HOME7=$(new_world symlinked-token)
 : > "$HOME7/real-token"

@@ -33,13 +33,18 @@ Usage:
       first, falling back to the entry itself as a raw YouTrack query) and
       print the matching issues as tab-separated id, type, state, team,
       summary - one line per issue, one query at a time, in file order.
+      Exits non-zero when every configured query fails to read from the
+      tracker, so a read failure is never mistaken for a genuinely empty
+      result; a partial failure still prints what succeeded and exits 0.
   fm-youtrack.sh -h|--help
 
 Config, all LOCAL and gitignored under the effective firstmate home
 (FM_HOME, defaulting to this script's own repo root):
   config/youtrack-token     required. First non-blank, non-comment line is
-                             either a bare permanent token or NAME=TOKEN, in
-                             which case the value after the first = is used.
+                             used verbatim when it starts with "perm-" or
+                             "perm:" (a bare permanent token legitimately
+                             contains further = characters); otherwise a
+                             NAME= prefix before the first = is stripped.
   config/youtrack-url       optional. Default https://altave.youtrack.cloud
   config/youtrack-queries   optional. One saved-query name or raw YouTrack
                              query per line; blank lines and comment lines
@@ -66,6 +71,7 @@ yt_token() {
   line=$(grep -vE '^[[:space:]]*(#|$)' "$TOKEN_FILE" 2>/dev/null | head -1) || return 1
   [ -n "$line" ] || return 1
   case "$line" in
+    perm-*|perm:*) printf '%s' "$line" ;;
     *=*) printf '%s' "${line#*=}" ;;
     *) printf '%s' "$line" ;;
   esac
@@ -183,16 +189,20 @@ cmd_queries() {
     echo "fm-youtrack: no queries configured (config/youtrack-queries)" >&2
     exit 1
   fi
-  local line trimmed any=0
+  local line trimmed any=0 failed=0
   while IFS= read -r line || [ -n "$line" ]; do
     case "$line" in ''|'#'*) continue ;; esac
     trimmed=$(printf '%s' "$line" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')
     [ -n "$trimmed" ] || continue
-    any=1
-    yt_print_query_issues "$trimmed"
+    any=$((any + 1))
+    yt_print_query_issues "$trimmed" || failed=$((failed + 1))
   done < "$QUERIES_FILE"
   if [ "$any" -eq 0 ]; then
     echo "fm-youtrack: config/youtrack-queries has no usable entries" >&2
+    exit 1
+  fi
+  if [ "$failed" -eq "$any" ]; then
+    echo "fm-youtrack: every configured query failed to read from the tracker" >&2
     exit 1
   fi
 }

@@ -34,6 +34,16 @@ stub_youtrack() {
   chmod +x "$root/bin/fm-youtrack.sh"
 }
 
+stub_youtrack_failing() {
+  local root=$1
+  printf '%s\n' '#!/usr/bin/env bash' > "$root/bin/fm-youtrack.sh"
+  {
+    printf 'echo "fm-youtrack: every configured query failed to read from the tracker" >&2\n'
+    printf 'exit 1\n'
+  } >> "$root/bin/fm-youtrack.sh"
+  chmod +x "$root/bin/fm-youtrack.sh"
+}
+
 split_pair() { IFS='|' read -r H R <<<"$1"; }
 
 WORLD1=$(new_world unconfigured)
@@ -89,6 +99,18 @@ out=$(FM_HOME="$H" FM_ROOT_OVERRIDE="$R" "$R/bin/fm-board-report.sh" 2>&1)
 expect_code 0 "$?" "board report with no matching issues still exits 0"
 assert_contains "$out" "no query returned any issue" "board report names an empty result rather than crashing silently"
 pass "configured tracker with no matching issues reports plainly instead of failing"
+
+WORLD5B=$(new_world read-failure)
+split_pair "$WORLD5B"
+: > "$H/config/youtrack-token"
+stub_youtrack_failing "$R"
+out=$(FM_HOME="$H" FM_ROOT_OVERRIDE="$R" "$R/bin/fm-board-report.sh" 2>&1)
+expect_code 0 "$?" "board report never fails the deferred stage even on a tracker read failure"
+assert_contains "$out" "could not read the tracker" \
+  "a total read failure is reported distinctly from a genuinely empty backlog"
+assert_not_contains "$out" "no query returned any issue" \
+  "a read failure is never worded as if the backlog were simply empty"
+pass "a tracker read failure is distinguished from a genuinely empty result"
 
 WORLD5=$(new_world state-meta-reference)
 split_pair "$WORLD5"
