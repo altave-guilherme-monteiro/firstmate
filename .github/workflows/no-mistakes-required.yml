@@ -22,7 +22,12 @@ jobs:
   check:
     name: PR must be raised via no-mistakes
     runs-on: ubuntu-latest
+    # This gate enforces the upstream project's own contribution process and
+    # can never pass on a PR raised any other way; scope it to the canonical
+    # upstream repository so a fork's own delivery mode does not read as a
+    # permanent, meaningless red.
     if: >-
+      github.repository == 'kunchenguid/firstmate' &&
       github.event.pull_request.user.login != 'github-actions[bot]' &&
       github.event.pull_request.user.login != 'dependabot[bot]'
     steps:
