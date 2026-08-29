@@ -102,20 +102,27 @@ git -C "$R" init -q 2>/dev/null
 git -C "$R" remote add origin https://github.com/example-org/example-repo.git
 write_stub "$FB/gh-axi" '
 case "$*" in
-  *"created:"*) echo "count: 3" ;;
-  *"merged:"*) echo "count: 2" ;;
-  *) echo "count: 0" ;;
+  *pulls*)
+    printf "%s\n" "  body: \"1\t2026-08-20T00:00:00Z\t2026-08-21T00:00:00Z\n2\t2026-08-10T00:00:00Z\t\n3\t2026-08-16T00:00:00Z\t\""
+    ;;
+  *search*)
+    echo "gh-axi search prs must not be used - GitHub search does not index every private repo" >&2
+    exit 1
+    ;;
+  *)
+    echo "count: 0"
+    ;;
 esac
-echo "prs: []"
 '
 write_stub "$FB/quota-axi" '
 printf "%s\n" "{\"providers\":[{\"provider\":\"claude\",\"windows\":[{\"id\":\"seven_day\",\"label\":\"week\",\"kind\":\"weekly\",\"percentRemaining\":42,\"pace\":{\"status\":\"ahead\"}}]}]}"
 '
-out=$(FM_HOME="$H" FM_ROOT_OVERRIDE="$R" PATH="$FB:$PATH" "$R/bin/fm-retrospective.sh" 2>&1)
+out=$(FM_HOME="$H" FM_ROOT_OVERRIDE="$R" PATH="$FB:$PATH" "$R/bin/fm-retrospective.sh" --since 2026-08-15 2>&1)
 expect_code 0 "$?" "gh-axi/quota-axi backed report exits 0"
-assert_contains "$out" "example-org/example-repo: 3 opened, 2 merged" "PR counts parsed from gh-axi search output and repo resolved from origin"
+assert_contains "$out" "example-org/example-repo: 2 opened, 1 merged since 2026-08-15" \
+  "PR counts are computed by listing (not search) so a private repo whose search index is empty still gets real counts: PR2 (created before the window) is excluded, PR1 counts as both opened and merged, PR3 counts as opened only"
 assert_contains "$out" "claude week: 42% remaining, pace ahead" "quota-axi JSON is parsed into the snapshot line"
-pass "gh-axi and quota-axi output is read and reported when both tools are present"
+pass "gh-axi PR activity is read via the REST listing endpoint, never GitHub search, and quota-axi output is parsed correctly"
 
 WORLD6=$(new_world board-trend)
 split_triple "$WORLD6"
@@ -134,8 +141,25 @@ out=$(FM_HOME="$H" FM_ROOT_OVERRIDE="$R" PATH="$FB:$PATH" "$R/bin/fm-retrospecti
 expect_code 0 "$?" "board-trend report exits 0"
 assert_contains "$out" "Today: 2 local backlog item(s) with no board issue, 1 board issue(s) with no local task" "current divergence counts parsed from fm-board-report.sh output"
 [ -f "$H/state/retrospective-board-trend.tsv" ] || fail "board trend history file was not written"
-assert_contains "$out" "Fewer than two recorded runs" "a first run has no prior history to compare against"
+assert_contains "$out" "No prior run recorded on an earlier day" "a first-ever run has no prior history to compare against"
 out2=$(FM_HOME="$H" FM_ROOT_OVERRIDE="$R" PATH="$FB:$PATH" "$R/bin/fm-retrospective.sh" 2>&1)
-assert_not_contains "$out2" "Fewer than two recorded runs" "a second run the same day has two recorded points and reports a trend"
-assert_contains "$out2" "flat" "unchanged divergence counts between two same-day runs report as flat"
-pass "the board divergence trend is tracked across runs in a local history file, not just a snapshot"
+assert_contains "$out2" "No prior run recorded on an earlier day" \
+  "a second run on the SAME day still has no trend: two points on one day is not a trend, only a repeated snapshot, and must not be presented as one"
+assert_not_contains "$out2" $'\nSince' "no 'Since <date> (...)' trend line is printed when every recorded point is from today"
+pass "same-day reruns never fabricate a trend out of two points recorded moments apart"
+
+WORLD7=$(new_world board-trend-cross-day)
+split_triple "$WORLD7"
+git -C "$R" init -q 2>/dev/null || true
+stub_no_tools "$FB"
+: > "$H/config/youtrack-token"
+rm -f "$R/bin/fm-board-report.sh"
+write_stub "$R/bin/fm-board-report.sh" '
+echo "BOARD DIVERGENCE: local backlog item has no issue reference: a"
+'
+write_stub "$R/bin/fm-youtrack.sh" 'echo "[]"'
+printf '2020-01-01\t9\t9\n' > "$H/state/retrospective-board-trend.tsv"
+out=$(FM_HOME="$H" FM_ROOT_OVERRIDE="$R" PATH="$FB:$PATH" "$R/bin/fm-retrospective.sh" --days 3650 2>&1)
+assert_contains "$out" "Since 2020-01-01 (9/9): no-issue-reference is shrinking" \
+  "a genuinely earlier recorded day is used as the trend baseline and the direction is computed correctly"
+pass "a trend baseline from an earlier day is reported as a real trend, not suppressed"

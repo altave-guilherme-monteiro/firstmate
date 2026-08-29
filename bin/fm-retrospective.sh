@@ -163,12 +163,22 @@ if [ -z "$REPO" ]; then
 elif ! command -v gh-axi >/dev/null 2>&1; then
   echo "gh-axi not found on PATH - PR activity skipped."
 else
-  opened=$(gh-axi search prs "is:pr created:>=$SINCE" --repo "$REPO" --limit 1000 2>/dev/null | grep -oE '^count: [0-9]+' | grep -oE '[0-9]+')
-  merged=$(gh-axi search prs "is:pr merged:>=$SINCE" --repo "$REPO" --limit 1000 2>/dev/null | grep -oE '^count: [0-9]+' | grep -oE '[0-9]+')
-  if [ -z "$opened" ] || [ -z "$merged" ]; then
-    echo "gh-axi search failed for $REPO - PR activity unavailable, not estimated."
+  PR_RAW=$(gh-axi api "repos/$REPO/pulls?state=all&per_page=100" --paginate --jq '.[] | [.number, .created_at, .merged_at] | @tsv' 2>/dev/null)
+  PR_RC=$?
+  if [ "$PR_RC" -ne 0 ]; then
+    echo "gh-axi could not list PRs for $REPO - PR activity unavailable, not estimated."
   else
-    echo "$REPO: $opened opened, $merged merged since $SINCE."
+    PR_TSV=$(printf '%s\n' "$PR_RAW" | sed -n 's/^  body: "\(.*\)"$/\1/p' | while IFS= read -r b; do printf '%b\n' "$b"; done)
+    opened=0
+    merged=0
+    while IFS=$'\t' read -r num created merged_at; do
+      [ -n "$num" ] || continue
+      ce=$(date_to_epoch "$created") && [ "$ce" -ge "$SINCE_EPOCH" ] && opened=$((opened + 1))
+      if [ -n "$merged_at" ]; then
+        me=$(date_to_epoch "$merged_at") && [ "$me" -ge "$SINCE_EPOCH" ] && merged=$((merged + 1))
+      fi
+    done <<<"$PR_TSV"
+    echo "$REPO: $opened opened, $merged merged since $SINCE (listed via the REST pulls endpoint, not GitHub search - search does not index every private repo)."
   fi
   echo "Scoped to $REPO only - other repos this fleet ships into are not queried unless named with --repo."
 fi
@@ -225,13 +235,12 @@ else
   while IFS=$'\t' read -r d a b; do
     in_window "$d" && printf '%s\t%s\t%s\n' "$d" "$a" "$b" >> "$IN_RANGE"
   done < "$TREND_FILE"
-  N=$(wc -l < "$IN_RANGE" | tr -d ' ')
   echo "Today: $A local backlog item(s) with no board issue, $B board issue(s) with no local task."
-  if [ "$N" -lt 2 ]; then
-    echo "Fewer than two recorded runs inside the window - no trend yet, this becomes meaningful as the script runs on a recurring cadence."
+  FIRST=$(head -1 "$IN_RANGE")
+  IFS=$'\t' read -r fd fa fb <<<"$FIRST"
+  if [ -z "$FIRST" ] || [ "$fd" = "$TODAY" ]; then
+    echo "No prior run recorded on an earlier day inside the window - no trend yet, this becomes meaningful once the script has run on more than one day of its recurring cadence."
   else
-    FIRST=$(head -1 "$IN_RANGE")
-    IFS=$'\t' read -r fd fa fb <<<"$FIRST"
     trend_word() {
       local from=$1 to=$2
       if [ "$to" -gt "$from" ]; then echo "growing"
