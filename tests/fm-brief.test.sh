@@ -772,6 +772,14 @@ test_ship_and_scout_carry_semgrep_and_context7_guidance() {
     "scout brief must tell the worker to run semgrep"
   assert_grep "context7" "$brief" \
     "scout brief must point the worker at the context7 MCP tool for live docs"
+
+  FM_HOME="$BRIEF_HOME" "$ROOT/bin/fm-brief.sh" brief-tools-local alpha --mode local-only >/dev/null 2>&1 \
+    || fail "fm-brief.sh local-only scaffold exited non-zero"
+  brief="$BRIEF_HOME/data/brief-tools-local/brief.md"
+  assert_grep "semgrep --config=p/security-audit --config=p/secrets" "$brief" \
+    "local-only brief must still tell the worker to run semgrep"
+  assert_no_grep "Before you open your PR" "$brief" \
+    "local-only brief must not anchor semgrep guidance to a PR it forbids"
   pass "fm-brief: ship and scout briefs carry semgrep and context7 tool guidance"
 }
 

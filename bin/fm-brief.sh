@@ -116,7 +116,7 @@ codebase_graph_step() {
   printf '%s' "${CODEBASE_GRAPH_STEP//%STEP%/$1}"
 }
 SEMGREP_NOTE_SCOUT="Run \`semgrep --config=p/security-audit --config=p/secrets\` (read-only, no \`--autofix\`) over any code you change before finishing your work, and treat a new WARNING or ERROR finding as something to fix or call out in your report; this is a suggestion, not an enforced gate. If \`semgrep\` is not installed, note it and move on - nothing in this task depends on it."
-SEMGREP_NOTE_SHIP="Before you open your PR, run \`semgrep --config=p/security-audit --config=p/secrets\` (read-only, no \`--autofix\`) over the code you changed, and treat a new WARNING or ERROR finding as something to fix or explicitly justify in the PR body; this is a suggestion, not an enforced gate. If \`semgrep\` is not installed, note it and move on - nothing in this task depends on it."
+SEMGREP_NOTE_SHIP="Before you report this task done, run \`semgrep --config=p/security-audit --config=p/secrets\` (read-only, no \`--autofix\`) over the code you changed, and treat a new WARNING or ERROR finding as something to fix or explicitly justify where this task's result lands - the PR body if you open a PR, otherwise your commit message and status line; this is a suggestion, not an enforced gate. If \`semgrep\` is not installed, note it and move on - nothing in this task depends on it."
 CONTEXT7_NOTE="Live library and framework documentation is available through the \`context7\` MCP tool (\`resolve-library-id\` then \`query-docs\`); consult it instead of relying on memory whenever you write code against a library, framework, SDK, or CLI - this is expected practice, not an enforced gate."
 KIND=ship
 HERDR_LAB=0
