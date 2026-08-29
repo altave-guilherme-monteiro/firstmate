@@ -28,6 +28,20 @@ Usage:
   fm-youtrack.sh post <api-path> <json>
       POST <json> to https://<url><api-path>; print the raw JSON response
       body. <json> must be a valid JSON document.
+  fm-youtrack.sh delete <api-path>
+      DELETE https://<url><api-path>; print the raw response body, if any.
+      Used to remove evidence-verification debris (a comment or attachment
+      created only to prove a code path works) from a live issue.
+  fm-youtrack.sh attach <api-path> <file>
+      Upload <file> as multipart/form-data to https://<url><api-path> (a
+      tracker attachment endpoint, e.g. /api/issues/FM-1/attachments); print
+      the raw JSON response body. A rejected upload (bad HTTP status) prints
+      the tracker's response on stderr and exits non-zero - never dropped
+      silently.
+  fm-youtrack.sh url
+      Print the resolved tracker base URL (config/youtrack-url, or the
+      built-in default), with no network call. Fails the same way as every
+      other command when the tracker is not configured.
   fm-youtrack.sh queries
       Resolve every entry in config/youtrack-queries (a saved-query name
       first, falling back to the entry itself as a raw YouTrack query) and
@@ -125,12 +139,43 @@ yt_request() {
         -H "@$auth_file" -H 'Content-Type: application/json' -H 'Accept: application/json' \
         --data "$body" "$url" 2>/dev/null) || code=000
       ;;
+    DELETE)
+      code=$(curl -m 20 -s -o "$out" -w '%{http_code}' -X DELETE \
+        -H "@$auth_file" -H 'Accept: application/json' \
+        "$url" 2>/dev/null) || code=000
+      ;;
   esac
   rm -f "$auth_file"
   case "$code" in
     2??) cat "$out" ;;
     *)
       echo "fm-youtrack: $method $path -> HTTP ${code:-000}" >&2
+      cat "$out" >&2
+      rc=1
+      ;;
+  esac
+  rm -f "$out"
+  return "$rc"
+}
+
+yt_upload() {
+  local path=$1 file=$2 auth_file url code out rc=0
+  command -v curl >/dev/null 2>&1 || { echo "fm-youtrack: curl not found" >&2; exit 1; }
+  auth_file=$(yt_auth_header_file) || {
+    echo "fm-youtrack: no usable token in config/youtrack-token" >&2
+    exit 1
+  }
+  url="$(yt_url)$path"
+  out=$(mktemp "${TMPDIR:-/tmp}/fm-youtrack-body.XXXXXX") || { rm -f "$auth_file"; exit 1; }
+  code=$(curl -m 60 -s -o "$out" -w '%{http_code}' -X POST \
+    -H "@$auth_file" -H 'Accept: application/json' \
+    -F "file=@${file}" \
+    "$url" 2>/dev/null) || code=000
+  rm -f "$auth_file"
+  case "$code" in
+    2??) cat "$out" ;;
+    *)
+      echo "fm-youtrack: attach $path -> HTTP ${code:-000}" >&2
       cat "$out" >&2
       rc=1
       ;;
@@ -154,6 +199,25 @@ cmd_post() {
     exit 2
   }
   yt_request POST "$1" "$2"
+}
+
+cmd_delete() {
+  [ "$#" -eq 1 ] && [ -n "$1" ] || { usage >&2; exit 2; }
+  require_configured
+  yt_request DELETE "$1"
+}
+
+cmd_attach() {
+  [ "$#" -eq 2 ] && [ -n "$1" ] && [ -n "$2" ] || { usage >&2; exit 2; }
+  require_configured
+  [ -f "$2" ] || { echo "fm-youtrack: attachment file not found: $2" >&2; exit 1; }
+  yt_upload "$1" "$2"
+}
+
+cmd_url() {
+  require_configured
+  yt_url
+  echo
 }
 
 yt_resolve_query() {
@@ -212,6 +276,9 @@ CMD=${1:-}
 case "$CMD" in
   get) cmd_get "$@" ;;
   post) cmd_post "$@" ;;
+  delete) cmd_delete "$@" ;;
+  attach) cmd_attach "$@" ;;
+  url) cmd_url "$@" ;;
   queries) cmd_queries "$@" ;;
   -h|--help) usage ;;
   '') usage >&2; exit 2 ;;

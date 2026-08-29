@@ -225,6 +225,85 @@ assert_contains "$out" "FM-9" "the successful entry's rows still print"
 
 pass "a partial query failure still exits 0 and reports what succeeded"
 
+HOME10=$(new_world attach-success)
+printf 'perm-a\n' > "$HOME10/config/youtrack-token"
+FAKEBIN10=$(fake_curl "$HOME10")
+SHOT10="$HOME10/shot.png"
+: > "$SHOT10"
+out=$(PATH="$FAKEBIN10:$PATH" FM_CONFIG_OVERRIDE="$HOME10/config" FM_HOME="$HOME10" \
+  FM_FAKE_CURL_BODY='{"name":"shot.png","url":"/api/files/9"}' \
+  "$ROOT/bin/fm-youtrack.sh" attach /api/issues/FM-1/attachments "$SHOT10" 2>&1)
+expect_code 0 "$?" "attach with a real file succeeds"
+assert_contains "$out" '"url":"/api/files/9"' "attach prints the raw tracker response"
+
+pass "attach uploads a file and prints the raw response"
+
+HOME11=$(new_world attach-missing-file)
+printf 'perm-a\n' > "$HOME11/config/youtrack-token"
+out=$(FM_CONFIG_OVERRIDE="$HOME11/config" FM_HOME="$HOME11" \
+  "$ROOT/bin/fm-youtrack.sh" attach /api/issues/FM-1/attachments "$HOME11/nope.png" 2>&1)
+expect_code 1 "$?" "attach with a missing local file refuses"
+assert_contains "$out" "attachment file not found" "attach names the missing local file"
+
+pass "attach refuses cleanly when the local file does not exist"
+
+HOME12=$(new_world attach-rejected)
+printf 'perm-a\n' > "$HOME12/config/youtrack-token"
+FAKEBIN12=$(fake_curl "$HOME12")
+SHOT12="$HOME12/shot.png"
+: > "$SHOT12"
+out=$(PATH="$FAKEBIN12:$PATH" FM_CONFIG_OVERRIDE="$HOME12/config" FM_HOME="$HOME12" \
+  FM_FAKE_CURL_CODE=413 FM_FAKE_CURL_BODY='{"error":"too large"}' \
+  "$ROOT/bin/fm-youtrack.sh" attach /api/issues/FM-1/attachments "$SHOT12" 2>&1)
+expect_code 1 "$?" "attach reports a tracker rejection as failure"
+assert_contains "$out" "HTTP 413" "attach names the exact HTTP status"
+assert_contains "$out" "too large" "attach surfaces the tracker's rejection body"
+
+pass "a rejected attachment upload fails loudly with the tracker's own response"
+
+HOME13=$(new_world url-command)
+printf 'perm-u\n' > "$HOME13/config/youtrack-token"
+out=$(FM_CONFIG_OVERRIDE="$HOME13/config" FM_HOME="$HOME13" "$ROOT/bin/fm-youtrack.sh" url 2>&1)
+expect_code 0 "$?" "url prints the default tracker base url"
+assert_contains "$out" "https://altave.youtrack.cloud" "url falls back to the built-in default"
+
+printf 'https://example.youtrack.cloud/\n' > "$HOME13/config/youtrack-url"
+out=$(FM_CONFIG_OVERRIDE="$HOME13/config" FM_HOME="$HOME13" "$ROOT/bin/fm-youtrack.sh" url 2>&1)
+assert_contains "$out" "https://example.youtrack.cloud" "url honors a configured youtrack-url, trailing slash stripped"
+
+pass "url prints the resolved tracker base url with no network call"
+
+HOME14=$(new_world delete-success)
+printf 'perm-d\n' > "$HOME14/config/youtrack-token"
+FAKEBIN14=$(fake_curl "$HOME14")
+out=$(PATH="$FAKEBIN14:$PATH" FM_CONFIG_OVERRIDE="$HOME14/config" FM_HOME="$HOME14" \
+  FM_FAKE_CURL_BODY='{"id":"8-1"}' \
+  "$ROOT/bin/fm-youtrack.sh" delete /api/issues/FM-1/attachments/8-1 2>&1)
+expect_code 0 "$?" "delete succeeds"
+assert_contains "$out" '"id":"8-1"' "delete prints the raw tracker response"
+
+HOME15=$(new_world delete-unconfigured)
+FAKEBIN15=$(hostile_curl "$HOME15")
+CURL_LOG15="$HOME15/curl.log"
+: > "$CURL_LOG15"
+out=$(PATH="$FAKEBIN15:$PATH" FM_CONFIG_OVERRIDE="$HOME15/config" FM_HOME="$HOME15" \
+  FM_FAKE_CURL_LOG="$CURL_LOG15" \
+  "$ROOT/bin/fm-youtrack.sh" delete /api/issues/FM-1/attachments/8-1 2>&1)
+expect_code 1 "$?" "delete with no token file fails"
+assert_contains "$out" "not configured" "delete without a token names the tracker as not configured"
+assert_empty_file "$CURL_LOG15" "delete without a token made no network call"
+
+HOME16=$(new_world delete-rejected)
+FAKEBIN16=$(fake_curl "$HOME16")
+printf 'perm-r\n' > "$HOME16/config/youtrack-token"
+out=$(PATH="$FAKEBIN16:$PATH" FM_CONFIG_OVERRIDE="$HOME16/config" FM_HOME="$HOME16" \
+  FM_FAKE_CURL_CODE=404 FM_FAKE_CURL_BODY='{"error":"not found"}' \
+  "$ROOT/bin/fm-youtrack.sh" delete /api/issues/FM-1/attachments/8-1 2>&1)
+expect_code 1 "$?" "delete reports a tracker rejection as failure"
+assert_contains "$out" "HTTP 404" "delete names the exact HTTP status"
+
+pass "delete issues a DELETE request through the same auth path, and refuses cleanly when unconfigured"
+
 HOME7=$(new_world symlinked-token)
 : > "$HOME7/real-token"
 ln -s "$HOME7/real-token" "$HOME7/config/youtrack-token"
