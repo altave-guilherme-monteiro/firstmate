@@ -751,13 +751,17 @@ test_scout_and_secondmate_scaffold() {
   pass "fm-brief: scout and secondmate code paths still scaffold well-formed briefs"
 }
 
+tool_guidance_lines() {
+  grep -E 'semgrep|context7' "$1"
+}
+
 test_ship_and_scout_carry_semgrep_and_context7_guidance() {
   local brief
   FM_HOME="$BRIEF_HOME" "$ROOT/bin/fm-brief.sh" brief-tools-ship alpha --mode no-mistakes >/dev/null 2>&1 \
     || fail "fm-brief.sh ship scaffold exited non-zero"
   brief="$BRIEF_HOME/data/brief-tools-ship/brief.md"
   assert_grep "semgrep --config=p/security-audit --config=p/secrets" "$brief" \
-    "ship brief must tell the worker to run semgrep before opening its PR"
+    "ship brief must tell the worker to run semgrep before reporting the task done"
   assert_grep "not installed, note it and move on" "$brief" \
     "ship brief's semgrep guidance must degrade gracefully when semgrep is absent"
   assert_grep "context7" "$brief" \
@@ -772,14 +776,25 @@ test_ship_and_scout_carry_semgrep_and_context7_guidance() {
     "scout brief must tell the worker to run semgrep"
   assert_grep "context7" "$brief" \
     "scout brief must point the worker at the context7 MCP tool for live docs"
+  assert_grep "context7\` tool is not available" "$brief" \
+    "scout brief's context7 guidance must degrade gracefully when the tool is absent"
 
   FM_HOME="$BRIEF_HOME" "$ROOT/bin/fm-brief.sh" brief-tools-local alpha --mode local-only >/dev/null 2>&1 \
     || fail "fm-brief.sh local-only scaffold exited non-zero"
   brief="$BRIEF_HOME/data/brief-tools-local/brief.md"
   assert_grep "semgrep --config=p/security-audit --config=p/secrets" "$brief" \
     "local-only brief must still tell the worker to run semgrep"
-  assert_no_grep "Before you open your PR" "$brief" \
-    "local-only brief must not anchor semgrep guidance to a PR it forbids"
+
+  local guidance_local guidance_ship
+  guidance_local="$TMP_ROOT/tool-guidance-local.txt"
+  guidance_ship="$TMP_ROOT/tool-guidance-ship.txt"
+  tool_guidance_lines "$brief" > "$guidance_local"
+  tool_guidance_lines "$BRIEF_HOME/data/brief-tools-ship/brief.md" > "$guidance_ship"
+  [ -s "$guidance_local" ] || fail "local-only brief rendered no semgrep or context7 guidance to check"
+  assert_no_grep "PR" "$guidance_local" \
+    "local-only brief's tool guidance must not name a PR that mode never opens"
+  cmp -s "$guidance_local" "$guidance_ship" \
+    || fail "semgrep and context7 guidance must render identically in every ship mode, not fork per delivery mode"
   pass "fm-brief: ship and scout briefs carry semgrep and context7 tool guidance"
 }
 
