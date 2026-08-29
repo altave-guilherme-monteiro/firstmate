@@ -178,7 +178,7 @@ CREATE7="$HOME7/create.log"
 UPDATE7="$HOME7/update.log"
 : > "$CREATE7"
 : > "$UPDATE7"
-COMMENTS_BODY7=$(printf '[{"id":"c-9","text":"<!-- fm-architecture-sync:%s:docs/architecture/one.md -->\\nold body"}]' "$REPO7")
+COMMENTS_BODY7='[{"id":"c-9","text":"<!-- fm-architecture-sync:github.com/example/one:docs/architecture/one.md -->\nold body"}]'
 out=$(PATH="$FAKEBIN7:$PATH" FM_CONFIG_OVERRIDE="$HOME7/config" FM_HOME="$HOME7" \
   FM_FAKE_COMMENTS_BODY="$COMMENTS_BODY7" FM_FAKE_CREATE_LOG="$CREATE7" FM_FAKE_UPDATE_LOG="$UPDATE7" \
   "$SYNC" FM-1 "$REPO7/docs/architecture/one.md" 2>&1)
@@ -188,3 +188,33 @@ assert_grep "/comments/c-9" "$UPDATE7" "the update targets the existing comment 
 assert_empty_file "$CREATE7" "a matching marker never creates a second comment"
 
 pass "running the sync twice against the same issue and document updates one comment, never duplicates"
+
+HOME8=$(new_home dual-checkout)
+printf 'perm-x\n' > "$HOME8/config/youtrack-token"
+REPO8A=$(new_repo dual-checkout-a)
+REPO8B="$TMP_ROOT/repos/dual-checkout-b"
+git clone --quiet "$REPO8A" "$REPO8B"
+git -C "$REPO8B" remote set-url origin "git@github.com:example/one.git"
+FAKEBIN8=$(fake_curl "$HOME8")
+CREATE8="$HOME8/create.log"
+UPDATE8="$HOME8/update.log"
+: > "$CREATE8"
+: > "$UPDATE8"
+
+PATH="$FAKEBIN8:$PATH" FM_CONFIG_OVERRIDE="$HOME8/config" FM_HOME="$HOME8" \
+  FM_FAKE_CREATE_LOG="$CREATE8" FM_FAKE_UPDATE_LOG="$UPDATE8" \
+  FM_FAKE_COMMENTS_BODY='[]' FM_FAKE_CREATE_BODY='{"id":"c-42"}' \
+  "$SYNC" FM-1 "$REPO8A/docs/architecture/one.md" > /dev/null 2>&1
+expect_code 0 "$?" "syncing from the first checkout succeeds"
+
+out=$(PATH="$FAKEBIN8:$PATH" FM_CONFIG_OVERRIDE="$HOME8/config" FM_HOME="$HOME8" \
+  FM_FAKE_CREATE_LOG="$CREATE8" FM_FAKE_UPDATE_LOG="$UPDATE8" \
+  FM_FAKE_COMMENTS_BODY='[{"id":"c-42","text":"<!-- fm-architecture-sync:github.com/example/one:docs/architecture/one.md -->\nold body"}]' \
+  "$SYNC" FM-1 "$REPO8B/docs/architecture/one.md" 2>&1)
+expect_code 0 "$?" "syncing the same document from a second, differently-pathed checkout succeeds"
+assert_grep "/comments/c-42" "$UPDATE8" \
+  "a different local checkout path of the same repository and file updates the SAME comment"
+assert_not_contains "$out" "$TMP_ROOT" \
+  "no local filesystem path leaks into the mirror comment or its response"
+
+pass "two different checkout paths of the same repository and file update one comment, never two"

@@ -38,11 +38,14 @@ Behavior:
   lie. The source link points at the file's current HEAD commit in its
   repository's origin remote (GitHub-style /blob/<sha>/<path> URLs).
 
-  The mirror comment is found by a marker line encoding the exact
-  (repository, path) set given; running this script twice with the same
-  issue and file set updates that one comment in place rather than posting
-  a second copy. A different file set for the same issue mirrors to its
-  own comment.
+  The mirror comment is found by a marker line encoding the exact set of
+  (origin remote, path-within-repository) pairs given - never a local
+  filesystem path, so the same document synced from a different worktree,
+  clone, or machine still resolves to the same marker. Running this script
+  twice with the same issue and file set - from any checkout of that
+  repository - updates that one comment in place rather than posting a
+  second copy. A different file set for the same issue mirrors to its own
+  comment.
 
   Refuses cleanly, with no network call, when the tracker is not
   configured (no config/youtrack-token) - exactly as fm-youtrack.sh does,
@@ -148,9 +151,12 @@ for f in "${FILES[@]}"; do
     echo "fm-architecture-sync: $repo has no origin remote - cannot build a source link" >&2
     exit 1
   }
-  blob_url="$(to_https_base "$remote")/blob/${sha}/${relpath}"
+  base=$(to_https_base "$remote")
+  blob_url="${base}/blob/${sha}/${relpath}"
 
-  KEYS+=("${repo}:${relpath}")
+  identity=${base#https://}
+  identity=${identity#http://}
+  KEYS+=("${identity}:${relpath}")
 
   section="### ${relpath}"$'\n\n'
   section+="Source: [${relpath} @ ${sha:0:7}](${blob_url})"$'\n\n'
