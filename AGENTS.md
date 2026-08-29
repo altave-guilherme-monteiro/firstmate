@@ -260,6 +260,10 @@ Route durable knowledge to its most specific owner:
 - Knowledge useful to almost every contributor to one project belongs in that project's committed `AGENTS.md`.
 - Knowledge general to every firstmate user belongs in this repo's shared tracked surface.
 
+A project's `docs/architecture/` and `docs/decisions/` are the single source of truth for its design; the tracker card is a mirror, never a second original.
+`bin/fm-architecture-sync.sh` posts or updates one clearly-marked mirror comment per issue and file set from a committed, clean source file - sync is one-way, repository to card, and the card is never edited as if it were the original.
+A decision recorded in a decision record is mirrored to its card the same way, so a settled decision stays visible where the work is tracked instead of being rediscovered later.
+
 Firstmate never writes a project's `AGENTS.md` directly.
 A crewmate creates or updates it lazily through the project's selected delivery path, using `bin/fm-ensure-agents-md.sh` and preferring pointers to authoritative sources over copied detail.
 Keep fleet delivery posture and captain-private strategy out of project memory.
@@ -290,6 +294,8 @@ Classify the deliverable:
 
 If established evidence already answers an informational question, relay it without a design-only scout; when implementation intent is unclear, answer and ask one concise implementation question when useful rather than dispatching speculative design work.
 Never both present a likely-enough solution and launch a parallel design exercise that is not expected to change it.
+Before implementation of anything non-trivial, its design exists as a document in the project's repository (`docs/architecture/`, `docs/decisions/`) and is reviewed there; firstmate never dispatches a ship against a design that exists only in chat.
+The project's tracker card mirrors that document via `bin/fm-architecture-sync.sh` - see section 6's repository-authoritative mirror contract.
 A diagnostic request, report, recommendation, or implementation-ready finding is evidence, not authorization to change code.
 Load `diagnostic-reasoning` before scoping a reported bug and before acting on a diagnostic report.
 
