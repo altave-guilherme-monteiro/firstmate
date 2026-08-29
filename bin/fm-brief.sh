@@ -115,6 +115,9 @@ fi
 codebase_graph_step() {
   printf '%s' "${CODEBASE_GRAPH_STEP//%STEP%/$1}"
 }
+SEMGREP_NOTE_SCOUT="Run \`semgrep --config=p/security-audit --config=p/secrets\` (read-only, no \`--autofix\`) over any code you change before finishing your work, and treat a new WARNING or ERROR finding as something to fix or call out in your report; this is a suggestion, not an enforced gate. If \`semgrep\` is not installed, note it and move on - nothing in this task depends on it."
+SEMGREP_NOTE_SHIP="Before you open your PR, run \`semgrep --config=p/security-audit --config=p/secrets\` (read-only, no \`--autofix\`) over the code you changed, and treat a new WARNING or ERROR finding as something to fix or explicitly justify in the PR body; this is a suggestion, not an enforced gate. If \`semgrep\` is not installed, note it and move on - nothing in this task depends on it."
+CONTEXT7_NOTE="Live library and framework documentation is available through the \`context7\` MCP tool (\`resolve-library-id\` then \`query-docs\`); consult it instead of relying on memory whenever you write code against a library, framework, SDK, or CLI - this is expected practice, not an enforced gate."
 KIND=ship
 HERDR_LAB=0
 NO_PROJECTS=0
@@ -345,6 +348,9 @@ This is a SCOUT task: the deliverable is a written report, not a PR.
 The worktree is your laboratory - install, run, edit, and make scratch commits freely; all of it is discarded at teardown.
 The report is the only thing that survives, so anything worth keeping must be in it.
 
+$SEMGREP_NOTE_SCOUT
+$CONTEXT7_NOTE
+
 # Rules
 1. Never push to any remote and never open a PR.
 2. Stay inside this worktree; the only files you may write outside it are the report and the status file below.
@@ -465,6 +471,9 @@ The path check is authoritative: \`git rev-parse --git-dir\` and \`git rev-parse
 If the top-level path is the primary checkout or not the worktree you were launched in, STOP - do not branch or commit here - append \`blocked: launched in primary checkout, not an isolated worktree\` to the status file and stop.
 
 1. First action: create your branch: \`git checkout -b fm/$ID\`$SETUP2
+
+$SEMGREP_NOTE_SHIP
+$CONTEXT7_NOTE
 
 # Rules
 $RULE1

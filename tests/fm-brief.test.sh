@@ -751,6 +751,30 @@ test_scout_and_secondmate_scaffold() {
   pass "fm-brief: scout and secondmate code paths still scaffold well-formed briefs"
 }
 
+test_ship_and_scout_carry_semgrep_and_context7_guidance() {
+  local brief
+  FM_HOME="$BRIEF_HOME" "$ROOT/bin/fm-brief.sh" brief-tools-ship alpha --mode no-mistakes >/dev/null 2>&1 \
+    || fail "fm-brief.sh ship scaffold exited non-zero"
+  brief="$BRIEF_HOME/data/brief-tools-ship/brief.md"
+  assert_grep "semgrep --config=p/security-audit --config=p/secrets" "$brief" \
+    "ship brief must tell the worker to run semgrep before opening its PR"
+  assert_grep "not installed, note it and move on" "$brief" \
+    "ship brief's semgrep guidance must degrade gracefully when semgrep is absent"
+  assert_grep "context7" "$brief" \
+    "ship brief must point the worker at the context7 MCP tool for live docs"
+  assert_grep "resolve-library-id" "$brief" \
+    "ship brief must name the context7 lookup call"
+
+  FM_HOME="$BRIEF_HOME" "$ROOT/bin/fm-brief.sh" brief-tools-scout alpha --scout >/dev/null 2>&1 \
+    || fail "fm-brief.sh scout scaffold exited non-zero"
+  brief="$BRIEF_HOME/data/brief-tools-scout/brief.md"
+  assert_grep "semgrep --config=p/security-audit --config=p/secrets" "$brief" \
+    "scout brief must tell the worker to run semgrep"
+  assert_grep "context7" "$brief" \
+    "scout brief must point the worker at the context7 MCP tool for live docs"
+  pass "fm-brief: ship and scout briefs carry semgrep and context7 tool guidance"
+}
+
 test_codebase_graph_declaration_requires_opt_in() {
   local brief
   FM_HOME="$BRIEF_HOME" "$ROOT/bin/fm-brief.sh" brief-graph-off alpha --mode no-mistakes >/dev/null 2>&1 \
@@ -808,4 +832,5 @@ test_secondmate_directory_paths_are_absolute_and_output_is_stable
 test_pause_verb_override_renders_all_brief_scaffolds
 test_scout_and_secondmate_load_decision_hold_policy
 test_scout_and_secondmate_scaffold
+test_ship_and_scout_carry_semgrep_and_context7_guidance
 test_codebase_graph_declaration_requires_opt_in
