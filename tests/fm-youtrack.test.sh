@@ -225,6 +225,54 @@ assert_contains "$out" "FM-9" "the successful entry's rows still print"
 
 pass "a partial query failure still exits 0 and reports what succeeded"
 
+HOME10=$(new_world attach-success)
+printf 'perm-a\n' > "$HOME10/config/youtrack-token"
+FAKEBIN10=$(fake_curl "$HOME10")
+SHOT10="$HOME10/shot.png"
+: > "$SHOT10"
+out=$(PATH="$FAKEBIN10:$PATH" FM_CONFIG_OVERRIDE="$HOME10/config" FM_HOME="$HOME10" \
+  FM_FAKE_CURL_BODY='{"name":"shot.png","url":"/api/files/9"}' \
+  "$ROOT/bin/fm-youtrack.sh" attach /api/issues/FM-1/attachments "$SHOT10" 2>&1)
+expect_code 0 "$?" "attach with a real file succeeds"
+assert_contains "$out" '"url":"/api/files/9"' "attach prints the raw tracker response"
+
+pass "attach uploads a file and prints the raw response"
+
+HOME11=$(new_world attach-missing-file)
+printf 'perm-a\n' > "$HOME11/config/youtrack-token"
+out=$(FM_CONFIG_OVERRIDE="$HOME11/config" FM_HOME="$HOME11" \
+  "$ROOT/bin/fm-youtrack.sh" attach /api/issues/FM-1/attachments "$HOME11/nope.png" 2>&1)
+expect_code 1 "$?" "attach with a missing local file refuses"
+assert_contains "$out" "attachment file not found" "attach names the missing local file"
+
+pass "attach refuses cleanly when the local file does not exist"
+
+HOME12=$(new_world attach-rejected)
+printf 'perm-a\n' > "$HOME12/config/youtrack-token"
+FAKEBIN12=$(fake_curl "$HOME12")
+SHOT12="$HOME12/shot.png"
+: > "$SHOT12"
+out=$(PATH="$FAKEBIN12:$PATH" FM_CONFIG_OVERRIDE="$HOME12/config" FM_HOME="$HOME12" \
+  FM_FAKE_CURL_CODE=413 FM_FAKE_CURL_BODY='{"error":"too large"}' \
+  "$ROOT/bin/fm-youtrack.sh" attach /api/issues/FM-1/attachments "$SHOT12" 2>&1)
+expect_code 1 "$?" "attach reports a tracker rejection as failure"
+assert_contains "$out" "HTTP 413" "attach names the exact HTTP status"
+assert_contains "$out" "too large" "attach surfaces the tracker's rejection body"
+
+pass "a rejected attachment upload fails loudly with the tracker's own response"
+
+HOME13=$(new_world url-command)
+printf 'perm-u\n' > "$HOME13/config/youtrack-token"
+out=$(FM_CONFIG_OVERRIDE="$HOME13/config" FM_HOME="$HOME13" "$ROOT/bin/fm-youtrack.sh" url 2>&1)
+expect_code 0 "$?" "url prints the default tracker base url"
+assert_contains "$out" "https://altave.youtrack.cloud" "url falls back to the built-in default"
+
+printf 'https://example.youtrack.cloud/\n' > "$HOME13/config/youtrack-url"
+out=$(FM_CONFIG_OVERRIDE="$HOME13/config" FM_HOME="$HOME13" "$ROOT/bin/fm-youtrack.sh" url 2>&1)
+assert_contains "$out" "https://example.youtrack.cloud" "url honors a configured youtrack-url, trailing slash stripped"
+
+pass "url prints the resolved tracker base url with no network call"
+
 HOME7=$(new_world symlinked-token)
 : > "$HOME7/real-token"
 ln -s "$HOME7/real-token" "$HOME7/config/youtrack-token"
