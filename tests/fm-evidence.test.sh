@@ -35,17 +35,23 @@ done
 if [ -n "${FM_FAKE_CURL_DATA_LOG:-}" ] && [ -n "$data" ]; then
   printf '%s' "$data" >> "$FM_FAKE_CURL_DATA_LOG"
 fi
+attach_body=${FM_FAKE_ATTACH_BODY:-}
+[ -n "$attach_body" ] || attach_body='[{"name":"shot.png","url":"/api/files/1"}]'
+comment_body=${FM_FAKE_COMMENT_BODY:-}
+[ -n "$comment_body" ] || comment_body='{"id":"c-1"}'
+plain_body=${FM_FAKE_CURL_BODY:-}
+[ -n "$plain_body" ] || plain_body='{}'
 case "$url" in
   *attachments*)
-    printf '%s' "${FM_FAKE_ATTACH_BODY:-{\"name\":\"shot.png\",\"url\":\"/api/files/1\"}}" > "$out"
+    printf '%s' "$attach_body" > "$out"
     printf '%s' "${FM_FAKE_ATTACH_CODE:-200}"
     ;;
   *comments*)
-    printf '%s' "${FM_FAKE_COMMENT_BODY:-{\"id\":\"c-1\"}}" > "$out"
+    printf '%s' "$comment_body" > "$out"
     printf '%s' "${FM_FAKE_COMMENT_CODE:-200}"
     ;;
   *)
-    printf '%s' "${FM_FAKE_CURL_BODY:-{}}" > "$out"
+    printf '%s' "$plain_body" > "$out"
     printf '%s' "${FM_FAKE_CURL_CODE:-200}"
     ;;
 esac

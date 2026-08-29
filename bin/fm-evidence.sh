@@ -122,12 +122,12 @@ if [ "${#ATTACH_PATHS[@]}" -gt 0 ]; then
   BODY+=$'\n'"**Attachments:**"$'\n'
   BASE_URL=$("$YT" url) || { echo "fm-evidence: tracker not configured" >&2; exit 1; }
   for f in "${ATTACH_PATHS[@]}"; do
-    resp=$("$YT" attach "/api/issues/${ISSUE_ID}/attachments" "$f") || {
+    resp=$("$YT" attach "/api/issues/${ISSUE_ID}/attachments?fields=id,name,url" "$f") || {
       echo "fm-evidence: tracker rejected attachment $f - nothing was posted" >&2
       exit 1
     }
-    name=$(printf '%s' "$resp" | jq -r '.name // empty')
-    url=$(printf '%s' "$resp" | jq -r '.url // empty')
+    name=$(printf '%s' "$resp" | jq -r '(if type == "array" then .[0] else . end).name // empty')
+    url=$(printf '%s' "$resp" | jq -r '(if type == "array" then .[0] else . end).url // empty')
     [ -n "$name" ] && [ -n "$url" ] || {
       echo "fm-evidence: tracker accepted $f but returned no usable name/url - nothing was posted" >&2
       exit 1
