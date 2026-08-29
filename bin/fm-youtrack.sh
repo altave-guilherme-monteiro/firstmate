@@ -28,6 +28,10 @@ Usage:
   fm-youtrack.sh post <api-path> <json>
       POST <json> to https://<url><api-path>; print the raw JSON response
       body. <json> must be a valid JSON document.
+  fm-youtrack.sh delete <api-path>
+      DELETE https://<url><api-path>; print the raw response body, if any.
+      Used to remove evidence-verification debris (a comment or attachment
+      created only to prove a code path works) from a live issue.
   fm-youtrack.sh attach <api-path> <file>
       Upload <file> as multipart/form-data to https://<url><api-path> (a
       tracker attachment endpoint, e.g. /api/issues/FM-1/attachments); print
@@ -135,6 +139,11 @@ yt_request() {
         -H "@$auth_file" -H 'Content-Type: application/json' -H 'Accept: application/json' \
         --data "$body" "$url" 2>/dev/null) || code=000
       ;;
+    DELETE)
+      code=$(curl -m 20 -s -o "$out" -w '%{http_code}' -X DELETE \
+        -H "@$auth_file" -H 'Accept: application/json' \
+        "$url" 2>/dev/null) || code=000
+      ;;
   esac
   rm -f "$auth_file"
   case "$code" in
@@ -190,6 +199,12 @@ cmd_post() {
     exit 2
   }
   yt_request POST "$1" "$2"
+}
+
+cmd_delete() {
+  [ "$#" -eq 1 ] && [ -n "$1" ] || { usage >&2; exit 2; }
+  require_configured
+  yt_request DELETE "$1"
 }
 
 cmd_attach() {
@@ -261,6 +276,7 @@ CMD=${1:-}
 case "$CMD" in
   get) cmd_get "$@" ;;
   post) cmd_post "$@" ;;
+  delete) cmd_delete "$@" ;;
   attach) cmd_attach "$@" ;;
   url) cmd_url "$@" ;;
   queries) cmd_queries "$@" ;;

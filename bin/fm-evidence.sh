@@ -26,22 +26,26 @@ Usage:
                (non-blank) when method is "observed" and ignored otherwise.
                A blank line, or a line whose first character is a leading
                hash mark, is skipped.
---attach <path>  a screenshot or artifact file to upload to the issue and
-               reference from the comment; repeatable. The file is never
+--attach <path>  a screenshot or artifact file to upload to the comment and
+               render inline in its text; repeatable. The file is never
                left as a bare path in the comment text.
 
 Behavior:
-  Every --attach is uploaded to the issue's attachment endpoint through
-  "fm-youtrack.sh attach" BEFORE the comment is posted. If the tracker
-  rejects any attachment, this script stops immediately, prints the
-  tracker's exact rejection, and posts NOTHING - a partially-evidenced
-  comment is worse than no comment, and silently dropping the attachment is
-  the failure this script exists to prevent.
+  YouTrack only binds an attachment to a comment - visible in that
+  comment's own attachments and safe to find later - when the attachment is
+  uploaded to that comment's own attachment endpoint, after the comment
+  already exists. Uploading to the ISSUE's attachment endpoint instead
+  produces an orphan: a file sitting on the issue, unlisted by any comment,
+  that outlives the comment if the comment is later deleted or superseded.
+  So this script posts the record text first, then uploads every --attach
+  to that comment's attachment endpoint, then updates the same comment's
+  text to reference each attachment inline (an image renders inline in
+  YouTrack's Markdown; any other file type links to it).
 
-  On success, the record entries and a link to each uploaded attachment are
-  rendered into one Markdown comment and posted via
-  "fm-youtrack.sh post /api/issues/<id>/comments". The raw comment
-  response is printed on success.
+  If any attachment upload fails after the comment was created, this
+  script deletes that comment immediately and exits non-zero, naming the
+  tracker's exact rejection - it never leaves a comment on the issue that
+  promised evidence it does not carry.
 
   Refuses cleanly, with no network call, when the tracker is not
   configured (no config/youtrack-token) - exactly as fm-youtrack.sh does,
@@ -118,27 +122,53 @@ done < "$RECORD_FILE"
 
 [ "$any_entry" -eq 1 ] || { echo "fm-evidence: record file has no usable entries" >&2; exit 1; }
 
-if [ "${#ATTACH_PATHS[@]}" -gt 0 ]; then
-  BODY+=$'\n'"**Attachments:**"$'\n'
-  BASE_URL=$("$YT" url) || { echo "fm-evidence: tracker not configured" >&2; exit 1; }
-  for f in "${ATTACH_PATHS[@]}"; do
-    resp=$("$YT" attach "/api/issues/${ISSUE_ID}/attachments?fields=id,name,url" "$f") || {
-      echo "fm-evidence: tracker rejected attachment $f - nothing was posted" >&2
-      exit 1
-    }
-    name=$(printf '%s' "$resp" | jq -r '(if type == "array" then .[0] else . end).name // empty')
-    url=$(printf '%s' "$resp" | jq -r '(if type == "array" then .[0] else . end).url // empty')
-    [ -n "$name" ] && [ -n "$url" ] || {
-      echo "fm-evidence: tracker accepted $f but returned no usable name/url - nothing was posted" >&2
-      exit 1
-    }
-    case "$url" in
-      http*) full_url=$url ;;
-      *) full_url="${BASE_URL}${url}" ;;
-    esac
-    BODY+="- [${name}](${full_url})"$'\n'
-  done
+if [ "${#ATTACH_PATHS[@]}" -eq 0 ]; then
+  COMMENT_JSON=$(jq -Rs '{text: .}' <<<"$BODY")
+  "$YT" post "/api/issues/${ISSUE_ID}/comments?fields=id,text" "$COMMENT_JSON"
+  exit "$?"
 fi
 
-COMMENT_JSON=$(jq -Rs '{text: .}' <<<"$BODY")
-"$YT" post "/api/issues/${ISSUE_ID}/comments" "$COMMENT_JSON"
+CREATE_JSON=$(jq -Rs '{text: .}' <<<"$BODY")
+CREATE_RESP=$("$YT" post "/api/issues/${ISSUE_ID}/comments?fields=id,text" "$CREATE_JSON") \
+  || { echo "fm-evidence: could not create the evidence comment - nothing was posted" >&2; exit 1; }
+COMMENT_ID=$(printf '%s' "$CREATE_RESP" | jq -r '.id // empty')
+[ -n "$COMMENT_ID" ] || {
+  echo "fm-evidence: tracker accepted the comment but returned no id - cannot attach to it" >&2
+  exit 1
+}
+
+rollback() {
+  "$YT" post "/api/issues/${ISSUE_ID}/comments/${COMMENT_ID}" '{"deleted":true}' >/dev/null 2>&1
+}
+
+BASE_URL=$("$YT" url) || { rollback; echo "fm-evidence: tracker not configured" >&2; exit 1; }
+BODY+=$'\n'"**Attachments:**"$'\n'
+for f in "${ATTACH_PATHS[@]}"; do
+  resp=$("$YT" attach "/api/issues/${ISSUE_ID}/comments/${COMMENT_ID}/attachments?fields=id,name,url" "$f") || {
+    rollback
+    echo "fm-evidence: tracker rejected attachment $f - the evidence comment was rolled back, nothing was posted" >&2
+    exit 1
+  }
+  name=$(printf '%s' "$resp" | jq -r '(if type == "array" then .[0] else . end).name // empty')
+  url=$(printf '%s' "$resp" | jq -r '(if type == "array" then .[0] else . end).url // empty')
+  [ -n "$name" ] && [ -n "$url" ] || {
+    rollback
+    echo "fm-evidence: tracker accepted $f but returned no usable name/url - the evidence comment was rolled back, nothing was posted" >&2
+    exit 1
+  }
+  case "$url" in
+    http*) full_url=$url ;;
+    *) full_url="${BASE_URL}${url}" ;;
+  esac
+  case "$name" in
+    *.png|*.jpg|*.jpeg|*.gif|*.webp|*.PNG|*.JPG|*.JPEG|*.GIF|*.WEBP)
+      BODY+="![${name}](${full_url})"$'\n'
+      ;;
+    *)
+      BODY+="- [${name}](${full_url})"$'\n'
+      ;;
+  esac
+done
+
+UPDATE_JSON=$(jq -Rs '{text: .}' <<<"$BODY")
+"$YT" post "/api/issues/${ISSUE_ID}/comments/${COMMENT_ID}?fields=id,text,attachments(name,url)" "$UPDATE_JSON"
