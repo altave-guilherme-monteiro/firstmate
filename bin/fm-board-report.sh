@@ -44,6 +44,8 @@ fi
 
 command -v jq >/dev/null 2>&1 || { echo "BOARD: jq not found, cannot read tracker queries"; exit 0; }
 
+QUERIES=$(printf '%s\n' "$QUERIES" | awk -F'\t' '!seen[$1]++')
+
 per_query_counts() {
   printf '%s\n' "$QUERIES" | awk -F'\t' '
     { state=tolower($3) }
@@ -70,7 +72,17 @@ if [ -f "$BACKLOG" ] && [ ! -L "$BACKLOG" ]; then
       next
     }
     !inactive && /^[-*][[:space:]]+/ && $0 !~ /\(issue:[[:space:]]*[^)]+\)/ {
-      print "BOARD DIVERGENCE: local backlog item has no issue reference: " $0
+      line = $0
+      sub(/^[-*][[:space:]]+(\[[ xX]\][[:space:]]+)?/, "", line)
+      n = split(line, parts, " - ")
+      id = parts[1]
+      summary = (n >= 2) ? parts[2] : ""
+      gsub(/\([^)]*\)/, "", summary)
+      sub(/[[:space:]]*blocked-by:.*$/, "", summary)
+      gsub(/^[[:space:]]+|[[:space:]]+$/, "", summary)
+      if (length(summary) > 70) summary = substr(summary, 1, 70) "..."
+      short = (summary == "") ? id : id " - " summary
+      print "BOARD DIVERGENCE: local backlog item has no issue reference: " short
     }
   ' "$BACKLOG"
 fi

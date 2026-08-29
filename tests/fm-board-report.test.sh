@@ -112,6 +112,39 @@ assert_not_contains "$out" "no query returned any issue" \
   "a read failure is never worded as if the backlog were simply empty"
 pass "a tracker read failure is distinguished from a genuinely empty result"
 
+WORLD6=$(new_world duplicate-across-queries)
+split_pair "$WORLD6"
+: > "$H/config/youtrack-token"
+ROWS='DEV-825\tTask\tIn Progress\tPlatform\tShared issue\n'
+ROWS="${ROWS}DEV-825\tTask\tIn Progress\tPlatform\tShared issue\n"
+ROWS="${ROWS}FM-1\tTask\tIn Progress\tPlatform\tOther issue\n"
+stub_youtrack "$R" "$ROWS"
+out=$(FM_HOME="$H" FM_ROOT_OVERRIDE="$R" "$R/bin/fm-board-report.sh" 2>&1)
+expect_code 0 "$?" "board report with a cross-query duplicate exits 0"
+assert_contains "$out" "in progress: 2" \
+  "an issue matching two configured queries is counted once, not once per match"
+occurrences=$(printf '%s\n' "$out" | grep -c '^BOARD in progress: DEV-825')
+[ "$occurrences" -eq 1 ] || fail "DEV-825 printed $occurrences times in the in-progress list, expected exactly 1"
+pass "an issue matching more than one configured query is deduplicated by issue id"
+
+WORLD7=$(new_world long-hold-note)
+split_pair "$WORLD7"
+: > "$H/config/youtrack-token"
+stub_youtrack "$R" 'FM-9\tTask\tOpen\tPlatform\tUnrelated\n'
+cat > "$H/data/backlog.md" <<'EOF'
+## Queued
+- long-hold-task - Investigate the flaky retry loop (hold: captain must decide whether to bump the retry ceiling given the vendor rate limit change, or switch providers entirely, see the attached incident doc for full context and blast radius analysis and every other consideration that could possibly matter here) blocked-by: some-other-task
+EOF
+out=$(FM_HOME="$H" FM_ROOT_OVERRIDE="$R" "$R/bin/fm-board-report.sh" 2>&1)
+divergence_line=$(printf '%s\n' "$out" | grep '^BOARD DIVERGENCE: local backlog item has no issue reference:')
+[ -n "$divergence_line" ] || fail "no divergence line printed for the long-hold-note backlog item"
+assert_not_contains "$divergence_line" "hold:" "the hold note text never reaches the digest"
+assert_not_contains "$divergence_line" "blocked-by:" "the blocked-by clause never reaches the digest"
+line_len=${#divergence_line}
+[ "$line_len" -le 120 ] || fail "divergence line is $line_len chars, expected a short single line (got: $divergence_line)"
+assert_contains "$divergence_line" "long-hold-task" "the divergence line still names the task id"
+pass "a backlog item with a long hold note produces one short, scannable divergence line"
+
 WORLD5=$(new_world state-meta-reference)
 split_pair "$WORLD5"
 : > "$H/config/youtrack-token"
