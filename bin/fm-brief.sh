@@ -407,8 +407,8 @@ case "$MODE" in
 # Definition of done
 Delivery contract: mode=direct-PR
 This task ships **direct-PR**: you raise the PR yourself, without the no-mistakes pipeline.
-The task is complete only when committed on your branch.
-When it is implemented and committed, push your branch and open a PR with \`gh-axi\`, then append \`done: PR {url}\` to the status file and stop.
+A local commit is NOT done: this mode's required artifact is an open PR URL, and reporting \`done:\` with only a commit is a contract violation.
+Implement, commit, push your branch, and open a PR with \`gh-axi\`; only once the PR exists may you append \`done: PR {url}\` to the status file and stop.
 Do NOT run /no-mistakes. The configured merge authority decides whether to merge the PR; firstmate relays the outcome.
 EOF
     ;;
@@ -419,6 +419,7 @@ EOF
 # Definition of done
 Delivery contract: mode=local-only
 This task ships **local-only**: no remote, no PR, no pipeline.
+This mode's required artifact is a clean, ready branch - not a PR - and it exists as soon as you commit.
 The task is complete only when committed on your branch \`fm/$ID\`. Do NOT push, do NOT open a PR, do NOT merge.
 Keep your branch a clean fast-forward onto the current default branch - if \`main\` has advanced, rebase onto it so the eventual merge stays a fast-forward.
 When it is implemented and committed, append \`done: ready in branch fm/$ID\` to the status file and stop.
@@ -437,9 +438,16 @@ EOF
     IFS= read -r -d '' DOD <<EOF || true
 # Definition of done
 Delivery contract: mode=no-mistakes
-The task is complete only when committed on your branch.
-When you believe it is complete, append \`done: {summary}\` to the status file and stop.
+A local commit is NOT done: this mode's required artifact is a PR with green checks, and reporting \`done:\` with only a commit is a contract violation.
+When you believe it is complete, append \`working: {summary}\` to the status file.
 Firstmate will then instruct you to run /no-mistakes to validate and ship a PR.
+
+If the no-mistakes rebase gate reports unpushed main commits that are already on origin/main, run this pre-flight before responding to the gate:
+- \`git fetch origin\`, then compare \`git rev-parse origin/main\` against \`git ls-remote no-mistakes main\`.
+- A mismatch means the gate is diffing its own stale internal mirror, not your worktree - a false positive.
+- If \`git rev-list --count origin/main..HEAD\` shows only your own commits, respond \`no-mistakes axi respond --action skip\`.
+- NEVER \`--action approve\` in that situation - it bundles already-merged commits into your PR.
+- NEVER restart the shared no-mistakes daemon to refresh its mirror - that kills other lanes' in-flight runs; if the pre-flight itself is inconclusive, escalate per rule 6 instead.
 
 You drive no-mistakes by responding to its gates, not by implementing fixes.
 Follow the guidance no-mistakes itself provides for the mechanics: it loads when you invoke /no-mistakes, and \`no-mistakes axi run --help\` plus the \`help\` lines in each \`axi\` response are authoritative and version-matched to the installed binary.
