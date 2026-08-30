@@ -848,6 +848,62 @@ test_codebase_graph_declaration_requires_opt_in() {
   pass "fm-brief: graphify declaration appears only under the config/codebase-graph opt-in"
 }
 
+test_delivery_traps_are_closed() {
+  local home id brief
+  home="$TMP_ROOT/delivery-traps-home"
+  mkdir -p "$home/data"
+  id="brief-traps-c1"
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" some-proj --mode no-mistakes >/dev/null 2>&1
+  brief="$home/data/$id/brief.md"
+  assert_present "$brief" "brief was not scaffolded"
+  assert_grep "A local commit is NOT done" "$brief" \
+    "no-mistakes DOD must call out that a local commit is not done"
+  assert_grep "reporting \`done:\` with only a commit is a contract violation" "$brief" \
+    "no-mistakes DOD must call reporting done at a bare commit a contract violation"
+  assert_grep "this mode's required artifact is a PR with green checks" "$brief" \
+    "no-mistakes DOD must name its required artifact"
+  assert_grep "git ls-remote no-mistakes main" "$brief" \
+    "no-mistakes DOD must carry the rebase-gate pre-flight comparison"
+  assert_grep "the gate is diffing its own stale internal mirror" "$brief" \
+    "no-mistakes DOD must explain the stale-mirror false positive"
+  assert_grep "no-mistakes axi respond --action skip" "$brief" \
+    "no-mistakes DOD must give the skip response for the stale-mirror case"
+  assert_grep "NEVER \`--action approve\` in that situation" "$brief" \
+    "no-mistakes DOD must forbid approve on the stale-mirror false positive"
+  assert_grep "NEVER restart the shared no-mistakes daemon to refresh its mirror" "$brief" \
+    "no-mistakes DOD must forbid restarting the shared daemon to refresh its mirror"
+
+  id="brief-traps-c2"
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" some-proj --mode direct-PR >/dev/null 2>&1
+  brief="$home/data/$id/brief.md"
+  assert_grep "this mode's required artifact is an open PR URL" "$brief" \
+    "direct-PR DOD must name its required artifact"
+  assert_grep "reporting \`done:\` with only a commit is a contract violation" "$brief" \
+    "direct-PR DOD must call reporting done at a bare commit a contract violation"
+
+  id="brief-traps-c3"
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" some-proj --mode local-only >/dev/null 2>&1
+  brief="$home/data/$id/brief.md"
+  assert_grep "This mode's required artifact is a clean, ready branch - not a PR" "$brief" \
+    "local-only DOD must name its required artifact and disclaim a PR"
+  assert_no_grep "required artifact is an open PR" "$brief" \
+    "local-only DOD must never claim a PR is required"
+  pass "fm-brief.sh: the commit-is-not-done contract and rebase-gate pre-flight render in generated ship briefs"
+}
+
+test_scout_brief_has_no_pr_language() {
+  local home id brief
+  home="$TMP_ROOT/scout-no-pr-home"
+  mkdir -p "$home/data"
+  id="brief-traps-scout-c1"
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" some-proj --scout >/dev/null 2>&1
+  brief="$home/data/$id/brief.md"
+  assert_present "$brief" "scout brief was not scaffolded"
+  assert_no_grep "required artifact is" "$brief" "scout brief must gain no delivery-artifact language"
+  assert_no_grep "contract violation" "$brief" "scout brief must gain no commit-is-not-done contract language"
+  pass "fm-brief.sh: scout brief carries no PR language"
+}
+
 test_script_parses
 test_no_heredoc_in_command_substitution
 test_help_includes_entire_header
@@ -871,3 +927,5 @@ test_scout_and_secondmate_load_decision_hold_policy
 test_scout_and_secondmate_scaffold
 test_ship_and_scout_carry_semgrep_and_context7_guidance
 test_codebase_graph_declaration_requires_opt_in
+test_delivery_traps_are_closed
+test_scout_brief_has_no_pr_language
