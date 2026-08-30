@@ -751,6 +751,67 @@ test_scout_and_secondmate_scaffold() {
   pass "fm-brief: scout and secondmate code paths still scaffold well-formed briefs"
 }
 
+brief_setup_section() {
+  sed -n '/^# Setup$/,/^# Rules$/p' "$1"
+}
+
+brief_tool_guidance() {
+  sed -n '/semgrep --config=p\/security-audit/,/^# Rules$/p' "$1" | sed '$d'
+}
+
+test_ship_and_scout_carry_semgrep_and_context7_guidance() {
+  local brief
+  FM_HOME="$BRIEF_HOME" "$ROOT/bin/fm-brief.sh" brief-tools-ship alpha --mode no-mistakes >/dev/null 2>&1 \
+    || fail "fm-brief.sh ship scaffold exited non-zero"
+  brief="$BRIEF_HOME/data/brief-tools-ship/brief.md"
+  assert_grep "semgrep --config=p/security-audit --config=p/secrets" "$brief" \
+    "ship brief must tell the worker to run semgrep before its implementation is complete"
+  assert_grep "not installed, note it and move on" "$brief" \
+    "ship brief's semgrep guidance must degrade gracefully when semgrep is absent"
+  assert_grep "context7" "$brief" \
+    "ship brief must point the worker at the context7 MCP tool for live docs"
+  assert_grep "resolve-library-id" "$brief" \
+    "ship brief must name the context7 lookup call"
+
+  FM_HOME="$BRIEF_HOME" "$ROOT/bin/fm-brief.sh" brief-tools-scout alpha --scout >/dev/null 2>&1 \
+    || fail "fm-brief.sh scout scaffold exited non-zero"
+  brief="$BRIEF_HOME/data/brief-tools-scout/brief.md"
+  assert_grep "semgrep --config=p/security-audit --config=p/secrets" "$brief" \
+    "scout brief must tell the worker to run semgrep"
+  assert_grep "context7" "$brief" \
+    "scout brief must point the worker at the context7 MCP tool for live docs"
+  assert_grep "context7\` tool is not available" "$brief" \
+    "scout brief's context7 guidance must degrade gracefully when the tool is absent"
+
+  FM_HOME="$BRIEF_HOME" "$ROOT/bin/fm-brief.sh" brief-tools-local alpha --mode local-only >/dev/null 2>&1 \
+    || fail "fm-brief.sh local-only scaffold exited non-zero"
+  brief="$BRIEF_HOME/data/brief-tools-local/brief.md"
+  assert_grep "semgrep --config=p/security-audit --config=p/secrets" "$brief" \
+    "local-only brief must still tell the worker to run semgrep"
+
+  FM_HOME="$BRIEF_HOME" "$ROOT/bin/fm-brief.sh" brief-tools-direct alpha --mode direct-PR >/dev/null 2>&1 \
+    || fail "fm-brief.sh direct-PR scaffold exited non-zero"
+
+  local setup_local guidance_local guidance_ship guidance_direct
+  setup_local="$TMP_ROOT/setup-local.txt"
+  guidance_local="$TMP_ROOT/tool-guidance-local.txt"
+  guidance_ship="$TMP_ROOT/tool-guidance-ship.txt"
+  guidance_direct="$TMP_ROOT/tool-guidance-direct.txt"
+  brief_setup_section "$brief" > "$setup_local"
+  brief_tool_guidance "$brief" > "$guidance_local"
+  brief_tool_guidance "$BRIEF_HOME/data/brief-tools-ship/brief.md" > "$guidance_ship"
+  brief_tool_guidance "$BRIEF_HOME/data/brief-tools-direct/brief.md" > "$guidance_direct"
+  [ -s "$setup_local" ] || fail "local-only brief rendered no Setup section to check"
+  [ -s "$guidance_local" ] || fail "local-only brief rendered no semgrep or context7 guidance to check"
+  assert_no_grep "PR" "$setup_local" \
+    "local-only brief's Setup section must not name a PR that mode never opens, on any line"
+  cmp -s "$guidance_local" "$guidance_ship" \
+    || fail "tool guidance must render identically in local-only and no-mistakes briefs, not fork per delivery mode"
+  cmp -s "$guidance_local" "$guidance_direct" \
+    || fail "tool guidance must render identically in local-only and direct-PR briefs, not fork per delivery mode"
+  pass "fm-brief: ship and scout briefs carry semgrep and context7 tool guidance"
+}
+
 test_codebase_graph_declaration_requires_opt_in() {
   local brief
   FM_HOME="$BRIEF_HOME" "$ROOT/bin/fm-brief.sh" brief-graph-off alpha --mode no-mistakes >/dev/null 2>&1 \
@@ -808,4 +869,5 @@ test_secondmate_directory_paths_are_absolute_and_output_is_stable
 test_pause_verb_override_renders_all_brief_scaffolds
 test_scout_and_secondmate_load_decision_hold_policy
 test_scout_and_secondmate_scaffold
+test_ship_and_scout_carry_semgrep_and_context7_guidance
 test_codebase_graph_declaration_requires_opt_in

@@ -57,6 +57,13 @@
 # it carries the AGENTS.md authoring bar (widely useful knowledge only, pointers
 # over copied detail) and has the crewmate add the fm-ensure-agents-md.sh
 # self-governance section when a touched project AGENTS.md lacks it.
+# Every ship and scout scaffold also carries two suggestion-grade tool notes that
+# no hook or pipeline enforces: run semgrep read-only over the worktree and weigh
+# only the WARNING and ERROR findings the task's own changes touch, and consult
+# the context7 MCP tool for live library, framework, SDK, and CLI documentation
+# instead of relying on memory. Each degrades to a note when its tool is absent,
+# like the codebase-graph step, and both render as one string shared by every
+# delivery mode, so neither names a PR that local-only never opens.
 # Refuses to overwrite an existing brief.
 set -eu
 
@@ -115,6 +122,9 @@ fi
 codebase_graph_step() {
   printf '%s' "${CODEBASE_GRAPH_STEP//%STEP%/$1}"
 }
+SEMGREP_NOTE_SCOUT="Before you finish your work, run \`semgrep --config=p/security-audit --config=p/secrets\` (read-only, no \`--autofix\`); it scans the whole worktree against no baseline, so read the output yourself and weigh only the WARNING and ERROR findings that touch the files and lines you changed, using judgment to skip pre-existing findings your work did not introduce. Fix those or call them out in your report; this is a suggestion, not an enforced gate. If \`semgrep\` is not installed, note it and move on - nothing in this task depends on it."
+SEMGREP_NOTE_SHIP="Before you consider your implementation complete, run \`semgrep --config=p/security-audit --config=p/secrets\` (read-only, no \`--autofix\`); it scans the whole worktree against no baseline, so read the output yourself and weigh only the WARNING and ERROR findings that touch the files and lines you changed, using judgment to skip pre-existing findings your work did not introduce. Fix those or explicitly justify them wherever this task's result is written up; this is a suggestion, not an enforced gate. If \`semgrep\` is not installed, note it and move on - nothing in this task depends on it."
+CONTEXT7_NOTE="Live library and framework documentation is available through the \`context7\` MCP tool (\`resolve-library-id\` then \`query-docs\`); consult it instead of relying on memory whenever you write code against a library, framework, SDK, or CLI - this is expected practice, not an enforced gate. If the \`context7\` tool is not available, note it and fall back to your own knowledge - nothing in this task depends on it."
 KIND=ship
 HERDR_LAB=0
 NO_PROJECTS=0
@@ -345,6 +355,9 @@ This is a SCOUT task: the deliverable is a written report, not a PR.
 The worktree is your laboratory - install, run, edit, and make scratch commits freely; all of it is discarded at teardown.
 The report is the only thing that survives, so anything worth keeping must be in it.
 
+$SEMGREP_NOTE_SCOUT
+$CONTEXT7_NOTE
+
 # Rules
 1. Never push to any remote and never open a PR.
 2. Stay inside this worktree; the only files you may write outside it are the report and the status file below.
@@ -465,6 +478,9 @@ The path check is authoritative: \`git rev-parse --git-dir\` and \`git rev-parse
 If the top-level path is the primary checkout or not the worktree you were launched in, STOP - do not branch or commit here - append \`blocked: launched in primary checkout, not an isolated worktree\` to the status file and stop.
 
 1. First action: create your branch: \`git checkout -b fm/$ID\`$SETUP2
+
+$SEMGREP_NOTE_SHIP
+$CONTEXT7_NOTE
 
 # Rules
 $RULE1
