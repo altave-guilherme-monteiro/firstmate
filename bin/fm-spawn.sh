@@ -284,6 +284,7 @@ BACKEND_ARG=
 MODE=
 YOLO=
 ISSUE_ARG=
+NO_ISSUE_ARG=
 TRACEPARENT_ARG=
 HARNESS_SET=0
 MODEL_SET=0
@@ -292,6 +293,7 @@ BACKEND_SET=0
 MODE_SET=0
 YOLO_SET=0
 ISSUE_SET=0
+NO_ISSUE_SET=0
 TRACEPARENT_SET=0
 RELAUNCH=0
 POS=()
@@ -309,6 +311,7 @@ for a in "$@"; do
       mode) MODE=$a; MODE_SET=1 ;;
       yolo) YOLO=$a; YOLO_SET=1 ;;
       issue) ISSUE_ARG=$a; ISSUE_SET=1 ;;
+      no_issue) NO_ISSUE_ARG=$a; NO_ISSUE_SET=1 ;;
       traceparent) TRACEPARENT_ARG=$a; TRACEPARENT_SET=1 ;;
       *) echo "error: internal parser state for --$want_value" >&2; exit 1 ;;
     esac
@@ -333,6 +336,8 @@ for a in "$@"; do
     --yolo=*) YOLO=${a#--yolo=}; YOLO_SET=1 ;;
     --issue) want_value=issue ;;
     --issue=*) ISSUE_ARG=${a#--issue=}; ISSUE_SET=1 ;;
+    --no-issue) want_value=no_issue ;;
+    --no-issue=*) NO_ISSUE_ARG=${a#--no-issue=}; NO_ISSUE_SET=1 ;;
     --traceparent) want_value=traceparent ;;
     --traceparent=*) TRACEPARENT_ARG=${a#--traceparent=}; TRACEPARENT_SET=1 ;;
     *) POS+=("$a") ;;
@@ -346,6 +351,8 @@ done
 [ "$MODE_SET" -eq 0 ] || [ -n "$MODE" ] || { echo "error: --mode requires a non-empty value" >&2; exit 1; }
 [ "$YOLO_SET" -eq 0 ] || [ -n "$YOLO" ] || { echo "error: --yolo requires a non-empty value" >&2; exit 1; }
 [ "$ISSUE_SET" -eq 0 ] || [ -n "$ISSUE_ARG" ] || { echo "error: --issue requires a non-empty value" >&2; exit 1; }
+[ "$NO_ISSUE_SET" -eq 0 ] || [ -n "$NO_ISSUE_ARG" ] || { echo "error: --no-issue requires a non-empty reason" >&2; exit 1; }
+[ "$ISSUE_SET" -eq 0 ] || [ "$NO_ISSUE_SET" -eq 0 ] || { echo "error: --issue and --no-issue are mutually exclusive; pass at most one" >&2; exit 1; }
 [ "$TRACEPARENT_SET" -eq 0 ] || [ -n "$TRACEPARENT_ARG" ] || { echo "error: --traceparent requires a non-empty value" >&2; exit 1; }
 # A parent-delivered carrier replaces this home's own resolution, so it is
 # refused unless it is a secondmate spawn carrying a strictly valid W3C value.
@@ -375,6 +382,7 @@ if [ "$RELAUNCH" -eq 1 ]; then
   [ "$MODE_SET" -eq 0 ] || { echo "error: --relaunch reuses the task's recorded delivery mode; --mode cannot override it" >&2; exit 1; }
   [ "$YOLO_SET" -eq 0 ] || { echo "error: --relaunch reuses the task's recorded yolo posture; --yolo cannot override it" >&2; exit 1; }
   [ "$ISSUE_SET" -eq 0 ] || { echo "error: --relaunch reuses the task's recorded issue reference; --issue cannot override it" >&2; exit 1; }
+  [ "$NO_ISSUE_SET" -eq 0 ] || { echo "error: --relaunch reuses the task's recorded issue waiver; --no-issue cannot override it" >&2; exit 1; }
 else
   # Delivery contract (AGENTS.md section 7). A ship task's mode and yolo are
   # firstmate's per-task decision, so they are required and closed-set validated
@@ -400,6 +408,12 @@ else
       on|off) ;;
       *) echo "error: --yolo must be on or off (got '$YOLO')" >&2; exit 1 ;;
     esac
+    if [ -f "$CONFIG/youtrack-token" ] && [ ! -L "$CONFIG/youtrack-token" ]; then
+      [ "$ISSUE_SET" -eq 1 ] || [ "$NO_ISSUE_SET" -eq 1 ] || {
+        echo "error: ship spawns require a linked YouTrack issue when the tracker is configured (AGENTS.md section 7: company work starts on the board); pass --issue <id>, or --no-issue \"<reason>\" to waive for firstmate-internal or personal work" >&2
+        exit 1
+      }
+    fi
   else
     [ "$MODE_SET" -eq 0 ] || {
       echo "error: --mode applies only to ship spawns; a scout delivers a report and a secondmate records its own fixed posture" >&2
@@ -2708,7 +2722,7 @@ fi
 preserve_relaunch_meta() {
   awk -F= '
     BEGIN {
-      split("window endpoint_task_id worktree project harness kind mode yolo issue tasktmp model effort busy_gen spawn_gen traceparent backend herdr_session herdr_workspace_id herdr_tab_id herdr_pane_id zellij_session zellij_tab_id zellij_pane_id orca_worktree_id terminal cmux_workspace_id cmux_surface_id home projects control_relaunch_tx", keys, " ")
+      split("window endpoint_task_id worktree project harness kind mode yolo issue issue_waived tasktmp model effort busy_gen spawn_gen traceparent backend herdr_session herdr_workspace_id herdr_tab_id herdr_pane_id zellij_session zellij_tab_id zellij_pane_id orca_worktree_id terminal cmux_workspace_id cmux_surface_id home projects control_relaunch_tx", keys, " ")
       for (i in keys) owned[keys[i]] = 1
     }
     !($1 in owned)
@@ -2724,6 +2738,7 @@ preserve_relaunch_meta() {
   [ -z "$MODE" ] || echo "mode=$MODE"
   [ -z "$YOLO" ] || echo "yolo=$YOLO"
   [ -z "$ISSUE_ARG" ] || echo "issue=$ISSUE_ARG"
+  [ -z "$NO_ISSUE_ARG" ] || echo "issue_waived=$NO_ISSUE_ARG"
   echo "tasktmp=$TASK_TMP"
   echo "model=${MODEL:-default}"
   echo "effort=${EFFORT:-default}"
