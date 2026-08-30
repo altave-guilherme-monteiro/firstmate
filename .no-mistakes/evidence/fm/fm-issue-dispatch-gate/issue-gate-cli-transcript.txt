@@ -1,0 +1,159 @@
+
+=== R4: no tracker configured -> gate is completely inert ===
+config/youtrack-token: absent
+
+$ fm-spawn.sh demo-untracked /tmp/fm-issue-gate-demo.y8uEMz/no-tracker/project --mode no-mistakes --yolo off
+warning: /tmp/fm-issue-gate-demo.y8uEMz/no-tracker/home/data/demo-untracked/brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode no-mistakes - confirm its definition of done matches
+spawned demo-untracked harness=claude kind=ship mode=no-mistakes yolo=off window=firstmate:fm-demo-untracked worktree=/tmp/fm-issue-gate-demo.y8uEMz/no-tracker/wt
+[exit 0]
+$ grep -E "^(kind|mode|issue|issue_waived)=" state/demo-untracked.meta
+kind=ship
+mode=no-mistakes
+
+=== R2: tracker configured, SHIP spawn with no --issue/--no-issue -> REFUSED ===
+config/youtrack-token: present
+
+$ fm-spawn.sh demo-gated /tmp/fm-issue-gate-demo.y8uEMz/tracker-gate/project --mode no-mistakes --yolo off
+error: ship spawns require a linked YouTrack issue when the tracker is configured (AGENTS.md section 7: company work starts on the board); pass --issue <id>, or --no-issue "<reason>" to waive for firstmate-internal or personal work
+[exit 1]
+$ ls state/demo-gated.meta
+(no meta file written - the spawn never launched)
+
+=== R1: --issue <id> satisfies the gate and lands issue= on the task record ===
+
+$ fm-spawn.sh demo-linked /tmp/fm-issue-gate-demo.y8uEMz/tracker-gate/project --mode no-mistakes --yolo off --issue FM-1234
+warning: /tmp/fm-issue-gate-demo.y8uEMz/tracker-gate/home/data/demo-linked/brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode no-mistakes - confirm its definition of done matches
+spawned demo-linked harness=claude kind=ship mode=no-mistakes yolo=off window=firstmate:fm-demo-linked worktree=/tmp/fm-issue-gate-demo.y8uEMz/tracker-gate/wt
+[exit 0]
+$ grep -E "^(kind|mode|issue|issue_waived)=" state/demo-linked.meta
+kind=ship
+mode=no-mistakes
+issue=FM-1234
+
+=== R3: --no-issue "<reason>" waives the gate and records issue_waived= ===
+
+$ fm-spawn.sh demo-waived /tmp/fm-issue-gate-demo.y8uEMz/tracker-gate/project --mode no-mistakes --yolo off --no-issue firstmate-internal tooling
+warning: /tmp/fm-issue-gate-demo.y8uEMz/tracker-gate/home/data/demo-waived/brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode no-mistakes - confirm its definition of done matches
+spawned demo-waived harness=claude kind=ship mode=no-mistakes yolo=off window=firstmate:fm-demo-waived worktree=/tmp/fm-issue-gate-demo.y8uEMz/tracker-gate/wt
+[exit 0]
+$ grep -E "^(kind|mode|issue|issue_waived)=" state/demo-waived.meta
+kind=ship
+mode=no-mistakes
+issue_waived=firstmate-internal tooling
+
+=== R3: an empty waiver reason is refused ===
+
+$ fm-spawn.sh demo-empty /tmp/fm-issue-gate-demo.y8uEMz/tracker-gate/project --mode no-mistakes --yolo off --no-issue 
+error: --no-issue requires a non-empty reason
+[exit 1]
+
+=== R6: --issue and --no-issue are mutually exclusive ===
+
+$ fm-spawn.sh demo-both /tmp/fm-issue-gate-demo.y8uEMz/tracker-gate/project --mode no-mistakes --yolo off --issue FM-1 --no-issue reason
+error: --issue and --no-issue are mutually exclusive; pass at most one
+[exit 1]
+
+=== hardening: a line break in the waiver reason cannot forge a second meta key ===
+
+$ fm-spawn.sh demo-forge /tmp/fm-issue-gate-demo.y8uEMz/tracker-gate/project --mode no-mistakes --yolo off --no-issue internal
+kind=secondmate
+error: --no-issue reason must be a single line; a line break would forge a second key in the task's meta record
+[exit 1]
+$ ls state/demo-forge.meta
+(no meta file written - the spawn never launched)
+
+=== hardening: --no-issue with no value names the flag as spelled ===
+
+$ fm-spawn.sh demo-noval /tmp/fm-issue-gate-demo.y8uEMz/tracker-gate/project --mode no-mistakes --yolo off --no-issue
+error: --no-issue requires a value
+[exit 1]
+
+=== R5: a SCOUT spawn is never gated, even with the tracker configured ===
+
+$ fm-spawn.sh demo-scout /tmp/fm-issue-gate-demo.y8uEMz/scout-ungated/project --scout
+spawned demo-scout harness=claude kind=scout window=firstmate:fm-demo-scout worktree=/tmp/fm-issue-gate-demo.y8uEMz/scout-ungated/wt
+[exit 0]
+$ grep -E "^(kind|mode|issue|issue_waived)=" state/demo-scout.meta
+kind=scout
+
+=== R5: a SECONDMATE spawn is never gated either ===
+
+$ fm-spawn.sh demo-secondmate <secondmate-home> --secondmate
+warning: secondmate demo-secondmate sync skipped before launch: primary default-branch commit cannot be resolved
+spawned demo-secondmate harness=claude kind=secondmate mode=secondmate yolo=off window=firstmate:fm-demo-secondmate worktree=/tmp/fm-issue-gate-demo.y8uEMz/secondmate/sm
+[exit 0]
+$ grep -E "^(kind|mode|issue|issue_waived)=" state/demo-secondmate.meta
+kind=secondmate
+mode=secondmate
+
+=== batch: one --issue on the dispatch reaches every pair ===
+
+$ fm-spawn.sh demo-batch-a=/tmp/fm-issue-gate-demo.y8uEMz/batch/project demo-batch-b=/tmp/fm-issue-gate-demo.y8uEMz/batch/project --mode no-mistakes --yolo off --issue FM-7
+warning: /tmp/fm-issue-gate-demo.y8uEMz/batch/home/data/demo-batch-a/brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode no-mistakes - confirm its definition of done matches
+spawned demo-batch-a harness=claude kind=ship mode=no-mistakes yolo=off window=firstmate:fm-demo-batch-a worktree=/tmp/fm-issue-gate-demo.y8uEMz/batch/wt
+warning: /tmp/fm-issue-gate-demo.y8uEMz/batch/home/data/demo-batch-b/brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode no-mistakes - confirm its definition of done matches
+spawned demo-batch-b harness=claude kind=ship mode=no-mistakes yolo=off window=firstmate:fm-demo-batch-b worktree=/tmp/fm-issue-gate-demo.y8uEMz/batch/wt
+[exit 0]
+$ grep -E "^(kind|mode|issue|issue_waived)=" state/demo-batch-a.meta
+kind=ship
+mode=no-mistakes
+issue=FM-7
+$ grep -E "^(kind|mode|issue|issue_waived)=" state/demo-batch-b.meta
+kind=ship
+mode=no-mistakes
+issue=FM-7
+
+=== R7: --relaunch refuses both override flags, and preserves the recorded linkage ===
+
+$ fm-spawn.sh demo-relaunch /tmp/fm-issue-gate-demo.y8uEMz/relaunch/project --mode no-mistakes --yolo off --issue FM-77
+warning: /tmp/fm-issue-gate-demo.y8uEMz/relaunch/home/data/demo-relaunch/brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode no-mistakes - confirm its definition of done matches
+spawned demo-relaunch harness=claude kind=ship mode=no-mistakes yolo=off window=firstmate:fm-demo-relaunch worktree=/tmp/fm-issue-gate-demo.y8uEMz/relaunch/wt
+[exit 0]
+$ grep -E "^(kind|mode|issue|issue_waived)=" state/demo-relaunch.meta
+kind=ship
+mode=no-mistakes
+issue=FM-77
+
+$ fm-spawn.sh demo-relaunch --relaunch --issue FM-999
+error: --relaunch reuses the task's recorded issue reference; --issue cannot override it
+[exit 1]
+
+$ fm-spawn.sh demo-relaunch --relaunch --no-issue other
+error: --relaunch preserves the task's recorded issue reference or waiver; --no-issue cannot override it
+[exit 1]
+
+-- now relaunch it for real --
+
+$ fm-spawn.sh demo-relaunch --relaunch
+warning: /tmp/fm-issue-gate-demo.y8uEMz/relaunch/home/data/demo-relaunch/brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode no-mistakes - confirm its definition of done matches
+spawned demo-relaunch harness=claude kind=ship mode=no-mistakes yolo=off window=firstmate:fm-demo-relaunch worktree=/tmp/fm-issue-gate-demo.y8uEMz/relaunch/wt
+[exit 0]
+$ grep -E "^(kind|mode|issue|issue_waived)=" state/demo-relaunch.meta
+kind=ship
+mode=no-mistakes
+issue=FM-77
+
+-- and a waived task --
+
+$ fm-spawn.sh demo-relaunch-waived /tmp/fm-issue-gate-demo.y8uEMz/relaunch/project --mode no-mistakes --yolo off --no-issue personal work
+warning: /tmp/fm-issue-gate-demo.y8uEMz/relaunch/home/data/demo-relaunch-waived/brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode no-mistakes - confirm its definition of done matches
+spawned demo-relaunch-waived harness=claude kind=ship mode=no-mistakes yolo=off window=firstmate:fm-demo-relaunch-waived worktree=/tmp/fm-issue-gate-demo.y8uEMz/relaunch/wt
+[exit 0]
+
+$ fm-spawn.sh demo-relaunch-waived --relaunch
+warning: /tmp/fm-issue-gate-demo.y8uEMz/relaunch/home/data/demo-relaunch-waived/brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode no-mistakes - confirm its definition of done matches
+spawned demo-relaunch-waived harness=claude kind=ship mode=no-mistakes yolo=off window=firstmate:fm-demo-relaunch-waived worktree=/tmp/fm-issue-gate-demo.y8uEMz/relaunch/wt
+[exit 0]
+$ grep -E "^(kind|mode|issue|issue_waived)=" state/demo-relaunch-waived.meta
+kind=ship
+mode=no-mistakes
+issue_waived=personal work
+
+=== downstream: the board report still sees the relaunched task as linked ===
+
+$ fm-board-report.sh   (board has FM-77 and FM-500 In Progress; local fleet holds the relaunched FM-77 task)
+BOARD: in progress: 2, waiting on captain: 0
+BOARD in progress: FM-77 (Captain) team-core
+BOARD in progress: FM-500 (Captain) team-core
+BOARD DIVERGENCE: FM-500 is In Progress on the board with no matching local task
+[exit 0]
