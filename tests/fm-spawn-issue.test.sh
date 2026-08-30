@@ -16,10 +16,11 @@ make_fakebin() {
 set -u
 case "$*" in
   *"pane_current_path"*) printf '%s\n' "${FM_FAKE_PANE_PATH:-}"; exit 0 ;;
+  *"pane_current_command"*) printf '%s\n' "${FM_FAKE_PANE_COMMAND:-zsh}"; exit 0 ;;
 esac
 case "${1:-}" in
   display-message) printf 'firstmate\n'; exit 0 ;;
-  list-windows) exit 0 ;;
+  list-windows) [ -z "${FM_FAKE_WINDOWS:-}" ] || printf '%s\n' "$FM_FAKE_WINDOWS"; exit 0 ;;
   has-session|new-session|new-window|kill-window) exit 0 ;;
   send-keys)
     if [ -n "${FM_FAKE_LAUNCH_LOG:-}" ]; then
@@ -130,7 +131,7 @@ assert_contains "$out" "starts on the board" \
   "the refusal names that company work starts on the board"
 assert_contains "$out" "--no-issue" \
   "the refusal names --no-issue as the waiver"
-[ -e "$HOME3/state/$ID3.meta" ] && fail "gate refusal: no meta should be written"
+assert_absent "$HOME3/state/$ID3.meta" "gate refusal: no meta should be written"
 
 pass "fm-spawn.sh refuses a ship spawn with a configured tracker and no --issue/--no-issue"
 
@@ -234,7 +235,86 @@ out=$(FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$HOME10" \
   FM_PROJECTS_OVERRIDE="$HOME10/projects" FM_CONFIG_OVERRIDE="$HOME10/config" \
   FM_SPAWN_NO_GUARD=1 TMUX='' CLAUDECODE=1 PATH="$FAKEBIN10:$PATH" \
   "$SPAWN" "$ID10" "$SM10" --secondmate 2>&1)
+expect_code 0 "$?" "secondmate spawn succeeds even with a configured tracker"
 assert_not_contains "$out" "linked YouTrack issue" \
   "a secondmate spawn is never gated by the tracker-issue check"
+assert_grep "kind=secondmate" "$HOME10/state/$ID10.meta" \
+  "the ungated secondmate spawn reached the meta write past argument validation"
+assert_no_grep "issue=" "$HOME10/state/$ID10.meta" \
+  "a secondmate spawn is never gated and never records an unrequested issue= line"
 
 pass "fm-spawn.sh's tracker gate never applies to a secondmate spawn"
+
+ID11=issue-gate-i1
+REC11=$(make_case gate-no-issue-newline "$ID11")
+IFS='|' read -r HOME11 PROJ11 WT11 FAKEBIN11 LOG11 <<EOF
+$REC11
+EOF
+enable_tracker "$HOME11"
+out=$(run_ship_spawn "$HOME11" "$WT11" "$FAKEBIN11" "$LOG11" "$ID11" "$PROJ11" \
+  --no-issue "$(printf 'internal\nkind=secondmate')")
+expect_code 1 "$?" "--no-issue with a line break in the reason refuses"
+assert_contains "$out" "must be a single line" \
+  "the refusal names the single-line requirement the meta record depends on"
+assert_absent "$HOME11/state/$ID11.meta" \
+  "a forged-key reason never reaches the task's meta record"
+
+out=$(run_ship_spawn "$HOME11" "$WT11" "$FAKEBIN11" "$LOG11" "$ID11" "$PROJ11" --no-issue)
+expect_code 1 "$?" "--no-issue with no value refuses"
+assert_contains "$out" "error: --no-issue requires a value" \
+  "the missing-value refusal names --no-issue as spelled on the command line"
+
+pass "fm-spawn.sh refuses a --no-issue reason that would forge a second meta record key"
+
+ID12A=batch-issue-a1
+ID12B=batch-issue-b1
+REC12=$(make_case gate-batch-issue "$ID12A")
+IFS='|' read -r HOME12 PROJ12 WT12 FAKEBIN12 LOG12 <<EOF
+$REC12
+EOF
+mkdir -p "$HOME12/data/$ID12B"
+printf 'brief for %s\n' "$ID12B" > "$HOME12/data/$ID12B/brief.md"
+enable_tracker "$HOME12"
+out=$(run_spawn "$HOME12" "$WT12" "$FAKEBIN12" "$LOG12" \
+  "$ID12A=$PROJ12" "$ID12B=$PROJ12" --mode no-mistakes --yolo off --issue FM-7)
+expect_code 0 "$?" "a batch ship dispatch with --issue succeeds when the tracker is configured"
+assert_not_contains "$out" "FAILED to spawn" "no pair of the batch is refused by the gate"
+assert_grep "issue=FM-7" "$HOME12/state/$ID12A.meta" \
+  "the batch's first pair records the dispatch's issue reference"
+assert_grep "issue=FM-7" "$HOME12/state/$ID12B.meta" \
+  "the batch's second pair records the dispatch's issue reference"
+
+pass "fm-spawn.sh forwards --issue to every pair of a batch ship dispatch"
+
+ID13=issue-gate-k1
+REC13=$(make_case relaunch-keeps-issue "$ID13")
+IFS='|' read -r HOME13 PROJ13 WT13 FAKEBIN13 LOG13 <<EOF
+$REC13
+EOF
+enable_tracker "$HOME13"
+out=$(run_ship_spawn "$HOME13" "$WT13" "$FAKEBIN13" "$LOG13" "$ID13" "$PROJ13" --issue FM-77)
+expect_code 0 "$?" "the ship spawn that a relaunch will replace succeeds"
+out=$(FM_FAKE_WINDOWS="fm-$ID13" run_spawn "$HOME13" "$WT13" "$FAKEBIN13" "$LOG13" "$ID13" --relaunch)
+expect_code 0 "$?" "relaunching the task succeeds"
+assert_grep "issue=FM-77" "$HOME13/state/$ID13.meta" \
+  "a relaunch preserves the task's recorded issue reference instead of unlinking it from the board"
+
+ID14=issue-gate-l1
+REC14=$(make_case relaunch-keeps-waiver "$ID14")
+IFS='|' read -r HOME14 PROJ14 WT14 FAKEBIN14 LOG14 <<EOF
+$REC14
+EOF
+enable_tracker "$HOME14"
+out=$(run_ship_spawn "$HOME14" "$WT14" "$FAKEBIN14" "$LOG14" "$ID14" "$PROJ14" --no-issue "personal work")
+expect_code 0 "$?" "the waived ship spawn that a relaunch will replace succeeds"
+out=$(FM_FAKE_WINDOWS="fm-$ID14" run_spawn "$HOME14" "$WT14" "$FAKEBIN14" "$LOG14" "$ID14" --relaunch)
+expect_code 0 "$?" "relaunching the waived task succeeds"
+assert_grep "issue_waived=personal work" "$HOME14/state/$ID14.meta" \
+  "a relaunch preserves the task's recorded issue waiver"
+
+out=$(FM_FAKE_WINDOWS="fm-$ID14" run_spawn "$HOME14" "$WT14" "$FAKEBIN14" "$LOG14" "$ID14" --relaunch --no-issue "other")
+expect_code 1 "$?" "--relaunch combined with --no-issue refuses"
+assert_contains "$out" "preserves the task's recorded issue reference or waiver" \
+  "the refusal states that the recorded reference or waiver survives the relaunch"
+
+pass "fm-spawn.sh --relaunch preserves the task's recorded issue reference and waiver"

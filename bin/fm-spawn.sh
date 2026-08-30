@@ -311,7 +311,7 @@ for a in "$@"; do
       mode) MODE=$a; MODE_SET=1 ;;
       yolo) YOLO=$a; YOLO_SET=1 ;;
       issue) ISSUE_ARG=$a; ISSUE_SET=1 ;;
-      no_issue) NO_ISSUE_ARG=$a; NO_ISSUE_SET=1 ;;
+      no-issue) NO_ISSUE_ARG=$a; NO_ISSUE_SET=1 ;;
       traceparent) TRACEPARENT_ARG=$a; TRACEPARENT_SET=1 ;;
       *) echo "error: internal parser state for --$want_value" >&2; exit 1 ;;
     esac
@@ -336,7 +336,7 @@ for a in "$@"; do
     --yolo=*) YOLO=${a#--yolo=}; YOLO_SET=1 ;;
     --issue) want_value=issue ;;
     --issue=*) ISSUE_ARG=${a#--issue=}; ISSUE_SET=1 ;;
-    --no-issue) want_value=no_issue ;;
+    --no-issue) want_value=no-issue ;;
     --no-issue=*) NO_ISSUE_ARG=${a#--no-issue=}; NO_ISSUE_SET=1 ;;
     --traceparent) want_value=traceparent ;;
     --traceparent=*) TRACEPARENT_ARG=${a#--traceparent=}; TRACEPARENT_SET=1 ;;
@@ -353,6 +353,12 @@ done
 [ "$ISSUE_SET" -eq 0 ] || [ -n "$ISSUE_ARG" ] || { echo "error: --issue requires a non-empty value" >&2; exit 1; }
 [ "$NO_ISSUE_SET" -eq 0 ] || [ -n "$NO_ISSUE_ARG" ] || { echo "error: --no-issue requires a non-empty reason" >&2; exit 1; }
 [ "$ISSUE_SET" -eq 0 ] || [ "$NO_ISSUE_SET" -eq 0 ] || { echo "error: --issue and --no-issue are mutually exclusive; pass at most one" >&2; exit 1; }
+case "$ISSUE_ARG" in
+  *[$'\n\r']*) echo "error: --issue must be a single line; a line break would forge a second key in the task's meta record" >&2; exit 1 ;;
+esac
+case "$NO_ISSUE_ARG" in
+  *[$'\n\r']*) echo "error: --no-issue reason must be a single line; a line break would forge a second key in the task's meta record" >&2; exit 1 ;;
+esac
 [ "$TRACEPARENT_SET" -eq 0 ] || [ -n "$TRACEPARENT_ARG" ] || { echo "error: --traceparent requires a non-empty value" >&2; exit 1; }
 # A parent-delivered carrier replaces this home's own resolution, so it is
 # refused unless it is a secondmate spawn carrying a strictly valid W3C value.
@@ -382,7 +388,7 @@ if [ "$RELAUNCH" -eq 1 ]; then
   [ "$MODE_SET" -eq 0 ] || { echo "error: --relaunch reuses the task's recorded delivery mode; --mode cannot override it" >&2; exit 1; }
   [ "$YOLO_SET" -eq 0 ] || { echo "error: --relaunch reuses the task's recorded yolo posture; --yolo cannot override it" >&2; exit 1; }
   [ "$ISSUE_SET" -eq 0 ] || { echo "error: --relaunch reuses the task's recorded issue reference; --issue cannot override it" >&2; exit 1; }
-  [ "$NO_ISSUE_SET" -eq 0 ] || { echo "error: --relaunch reuses the task's recorded issue waiver; --no-issue cannot override it" >&2; exit 1; }
+  [ "$NO_ISSUE_SET" -eq 0 ] || { echo "error: --relaunch preserves the task's recorded issue reference or waiver; --no-issue cannot override it" >&2; exit 1; }
 else
   # Delivery contract (AGENTS.md section 7). A ship task's mode and yolo are
   # firstmate's per-task decision, so they are required and closed-set validated
@@ -898,6 +904,8 @@ if [ "${#POS[@]}" -gt 0 ] && [ "${POS[0]}" != "$idpart" ] && case "$idpart" in *
   # spanning several modes is two invocations rather than a silent mixed dispatch.
   [ "$MODE_SET" -eq 0 ] || shared_args+=(--mode "$MODE")
   [ "$YOLO_SET" -eq 0 ] || shared_args+=(--yolo "$YOLO")
+  [ "$ISSUE_SET" -eq 0 ] || shared_args+=(--issue "$ISSUE_ARG")
+  [ "$NO_ISSUE_SET" -eq 0 ] || shared_args+=(--no-issue "$NO_ISSUE_ARG")
   for pair in "${POS[@]}"; do
     case "$pair" in
       *=*) : ;;
@@ -1057,6 +1065,8 @@ if [ "$RELAUNCH" -eq 1 ]; then
   [ -n "$KIND" ] || KIND=ship
   MODE=$(fm_meta_get "$RELAUNCH_META" mode)
   YOLO=$(fm_meta_get "$RELAUNCH_META" yolo)
+  ISSUE_ARG=$(fm_meta_get "$RELAUNCH_META" issue)
+  NO_ISSUE_ARG=$(fm_meta_get "$RELAUNCH_META" issue_waived)
   RELAUNCH_WT=$(fm_meta_get "$RELAUNCH_META" worktree)
   [ -n "$RELAUNCH_WT" ] && [ -d "$RELAUNCH_WT" ] || {
     echo "error: task $ID's recorded worktree '${RELAUNCH_WT:-none}' is missing; refusing to relaunch without the local copy its work lives in" >&2
