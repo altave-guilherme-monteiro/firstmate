@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Spawn a direct report: a crewmate in a treehouse or Orca worktree, or a
 # secondmate in its isolated firstmate home.
-# Usage: fm-spawn.sh <task-id> <project-dir> --mode <no-mistakes|direct-PR|local-only> --yolo <on|off> [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>]
+# Usage: fm-spawn.sh <task-id> <project-dir> --mode <no-mistakes|direct-PR|local-only> --yolo <on|off> [--issue <id>|--no-issue "<reason>"] [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>]
 #        fm-spawn.sh <task-id> <project-dir> --scout [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>]
 #        fm-spawn.sh <task-id> [<firstmate-home>] [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] --secondmate
 #   --mode and --yolo are this task's delivery contract, REQUIRED for every ship
@@ -16,6 +16,19 @@
 #   loud one-line deviation notice is printed and the spawn continues.
 #   no-mistakes-prod-only is a registry policy rather than a task mode and is
 #   refused as a flag value.
+#   --issue <id> is this task's board linkage and records issue=<id> in the
+#   task's meta; --no-issue "<reason>" waives that linkage instead and records
+#   issue_waived=<reason>. The two are mutually exclusive, each requires a
+#   non-empty value, and neither value may contain a line break, which would
+#   otherwise forge a second key in the meta record. When this home has a
+#   tracker configured (config/youtrack-token present and not a symlink), a
+#   ship spawn REFUSES unless one of the two was passed, which is what makes
+#   AGENTS.md section 7's "work never starts off-board" mechanical rather than
+#   only reported; the waiver is the escape hatch for firstmate-internal and
+#   personal work, so its reason is required. With no tracker configured the
+#   gate is inert and a ship spawn behaves exactly as before. --scout and
+#   --secondmate spawns are never gated by it, because a scout report and a
+#   persistent secondmate are not board work items.
 #        fm-spawn.sh <task-id> --relaunch [--harness <name>] [--model <name>] [--effort <level>]
 #   --relaunch launches a replacement agent for an EXISTING task into that
 #   task's own recorded endpoint and worktree instead of creating either. It is
@@ -27,7 +40,9 @@
 #   validated state/<id>.meta, so --backend, --scout, --secondmate, a project
 #   positional, and batch pairs are all refused alongside it; only harness,
 #   model, and effort may change, which is what makes a harness switch one
-#   ordinary relaunch. It refuses unless the recorded endpoint is positively
+#   ordinary relaunch. The recorded issue= or issue_waived= line is carried
+#   over unchanged, so --issue and --no-issue are refused alongside --mode and
+#   --yolo. It refuses unless the recorded endpoint is positively
 #   agent-free on a backend with a recovery-grade agent-state classifier (tmux
 #   or herdr), refuses unless the endpoint's shell is sitting in the recorded
 #   worktree, and clears the previous harness's per-task wiring before arming
@@ -151,7 +166,8 @@
 #     fm-spawn.sh fix-a-k3=projects/foo add-b-q7=projects/bar [--scout]
 #   Each pair re-execs this script in single-task mode, so the single path stays the only
 #   source of truth; shared --scout/--harness/--model/--effort/--backend/--mode/--yolo
-#   applies to every pair. A ship batch therefore carries one delivery contract, and each
+#   and --issue/--no-issue apply to every pair. A ship batch therefore carries one
+#   delivery contract and one issue reference or waiver recorded on every pair, and each
 #   pair still checks it against its own brief; a batch spanning modes is two invocations.
 #   If config/crew-dispatch.json exists, shared --harness is required for crewmate
 #   and scout batches. The loop lives here, in bash, so callers never hand-write a
@@ -284,6 +300,7 @@ BACKEND_ARG=
 MODE=
 YOLO=
 ISSUE_ARG=
+NO_ISSUE_ARG=
 TRACEPARENT_ARG=
 HARNESS_SET=0
 MODEL_SET=0
@@ -292,6 +309,7 @@ BACKEND_SET=0
 MODE_SET=0
 YOLO_SET=0
 ISSUE_SET=0
+NO_ISSUE_SET=0
 TRACEPARENT_SET=0
 RELAUNCH=0
 POS=()
@@ -309,6 +327,7 @@ for a in "$@"; do
       mode) MODE=$a; MODE_SET=1 ;;
       yolo) YOLO=$a; YOLO_SET=1 ;;
       issue) ISSUE_ARG=$a; ISSUE_SET=1 ;;
+      no-issue) NO_ISSUE_ARG=$a; NO_ISSUE_SET=1 ;;
       traceparent) TRACEPARENT_ARG=$a; TRACEPARENT_SET=1 ;;
       *) echo "error: internal parser state for --$want_value" >&2; exit 1 ;;
     esac
@@ -333,6 +352,8 @@ for a in "$@"; do
     --yolo=*) YOLO=${a#--yolo=}; YOLO_SET=1 ;;
     --issue) want_value=issue ;;
     --issue=*) ISSUE_ARG=${a#--issue=}; ISSUE_SET=1 ;;
+    --no-issue) want_value=no-issue ;;
+    --no-issue=*) NO_ISSUE_ARG=${a#--no-issue=}; NO_ISSUE_SET=1 ;;
     --traceparent) want_value=traceparent ;;
     --traceparent=*) TRACEPARENT_ARG=${a#--traceparent=}; TRACEPARENT_SET=1 ;;
     *) POS+=("$a") ;;
@@ -346,6 +367,14 @@ done
 [ "$MODE_SET" -eq 0 ] || [ -n "$MODE" ] || { echo "error: --mode requires a non-empty value" >&2; exit 1; }
 [ "$YOLO_SET" -eq 0 ] || [ -n "$YOLO" ] || { echo "error: --yolo requires a non-empty value" >&2; exit 1; }
 [ "$ISSUE_SET" -eq 0 ] || [ -n "$ISSUE_ARG" ] || { echo "error: --issue requires a non-empty value" >&2; exit 1; }
+[ "$NO_ISSUE_SET" -eq 0 ] || [ -n "$NO_ISSUE_ARG" ] || { echo "error: --no-issue requires a non-empty reason" >&2; exit 1; }
+[ "$ISSUE_SET" -eq 0 ] || [ "$NO_ISSUE_SET" -eq 0 ] || { echo "error: --issue and --no-issue are mutually exclusive; pass at most one" >&2; exit 1; }
+case "$ISSUE_ARG" in
+  *[$'\n\r']*) echo "error: --issue must be a single line; a line break would forge a second key in the task's meta record" >&2; exit 1 ;;
+esac
+case "$NO_ISSUE_ARG" in
+  *[$'\n\r']*) echo "error: --no-issue reason must be a single line; a line break would forge a second key in the task's meta record" >&2; exit 1 ;;
+esac
 [ "$TRACEPARENT_SET" -eq 0 ] || [ -n "$TRACEPARENT_ARG" ] || { echo "error: --traceparent requires a non-empty value" >&2; exit 1; }
 # A parent-delivered carrier replaces this home's own resolution, so it is
 # refused unless it is a secondmate spawn carrying a strictly valid W3C value.
@@ -375,6 +404,7 @@ if [ "$RELAUNCH" -eq 1 ]; then
   [ "$MODE_SET" -eq 0 ] || { echo "error: --relaunch reuses the task's recorded delivery mode; --mode cannot override it" >&2; exit 1; }
   [ "$YOLO_SET" -eq 0 ] || { echo "error: --relaunch reuses the task's recorded yolo posture; --yolo cannot override it" >&2; exit 1; }
   [ "$ISSUE_SET" -eq 0 ] || { echo "error: --relaunch reuses the task's recorded issue reference; --issue cannot override it" >&2; exit 1; }
+  [ "$NO_ISSUE_SET" -eq 0 ] || { echo "error: --relaunch preserves the task's recorded issue reference or waiver; --no-issue cannot override it" >&2; exit 1; }
 else
   # Delivery contract (AGENTS.md section 7). A ship task's mode and yolo are
   # firstmate's per-task decision, so they are required and closed-set validated
@@ -400,6 +430,12 @@ else
       on|off) ;;
       *) echo "error: --yolo must be on or off (got '$YOLO')" >&2; exit 1 ;;
     esac
+    if [ -f "$CONFIG/youtrack-token" ] && [ ! -L "$CONFIG/youtrack-token" ]; then
+      [ "$ISSUE_SET" -eq 1 ] || [ "$NO_ISSUE_SET" -eq 1 ] || {
+        echo "error: ship spawns require a linked YouTrack issue when the tracker is configured (AGENTS.md section 7: company work starts on the board); pass --issue <id>, or --no-issue \"<reason>\" to waive for firstmate-internal or personal work" >&2
+        exit 1
+      }
+    fi
   else
     [ "$MODE_SET" -eq 0 ] || {
       echo "error: --mode applies only to ship spawns; a scout delivers a report and a secondmate records its own fixed posture" >&2
@@ -884,6 +920,8 @@ if [ "${#POS[@]}" -gt 0 ] && [ "${POS[0]}" != "$idpart" ] && case "$idpart" in *
   # spanning several modes is two invocations rather than a silent mixed dispatch.
   [ "$MODE_SET" -eq 0 ] || shared_args+=(--mode "$MODE")
   [ "$YOLO_SET" -eq 0 ] || shared_args+=(--yolo "$YOLO")
+  [ "$ISSUE_SET" -eq 0 ] || shared_args+=(--issue "$ISSUE_ARG")
+  [ "$NO_ISSUE_SET" -eq 0 ] || shared_args+=(--no-issue "$NO_ISSUE_ARG")
   for pair in "${POS[@]}"; do
     case "$pair" in
       *=*) : ;;
@@ -1043,6 +1081,8 @@ if [ "$RELAUNCH" -eq 1 ]; then
   [ -n "$KIND" ] || KIND=ship
   MODE=$(fm_meta_get "$RELAUNCH_META" mode)
   YOLO=$(fm_meta_get "$RELAUNCH_META" yolo)
+  ISSUE_ARG=$(fm_meta_get "$RELAUNCH_META" issue)
+  NO_ISSUE_ARG=$(fm_meta_get "$RELAUNCH_META" issue_waived)
   RELAUNCH_WT=$(fm_meta_get "$RELAUNCH_META" worktree)
   [ -n "$RELAUNCH_WT" ] && [ -d "$RELAUNCH_WT" ] || {
     echo "error: task $ID's recorded worktree '${RELAUNCH_WT:-none}' is missing; refusing to relaunch without the local copy its work lives in" >&2
@@ -2708,7 +2748,7 @@ fi
 preserve_relaunch_meta() {
   awk -F= '
     BEGIN {
-      split("window endpoint_task_id worktree project harness kind mode yolo issue tasktmp model effort busy_gen spawn_gen traceparent backend herdr_session herdr_workspace_id herdr_tab_id herdr_pane_id zellij_session zellij_tab_id zellij_pane_id orca_worktree_id terminal cmux_workspace_id cmux_surface_id home projects control_relaunch_tx", keys, " ")
+      split("window endpoint_task_id worktree project harness kind mode yolo issue issue_waived tasktmp model effort busy_gen spawn_gen traceparent backend herdr_session herdr_workspace_id herdr_tab_id herdr_pane_id zellij_session zellij_tab_id zellij_pane_id orca_worktree_id terminal cmux_workspace_id cmux_surface_id home projects control_relaunch_tx", keys, " ")
       for (i in keys) owned[keys[i]] = 1
     }
     !($1 in owned)
@@ -2724,6 +2764,7 @@ preserve_relaunch_meta() {
   [ -z "$MODE" ] || echo "mode=$MODE"
   [ -z "$YOLO" ] || echo "yolo=$YOLO"
   [ -z "$ISSUE_ARG" ] || echo "issue=$ISSUE_ARG"
+  [ -z "$NO_ISSUE_ARG" ] || echo "issue_waived=$NO_ISSUE_ARG"
   echo "tasktmp=$TASK_TMP"
   echo "model=${MODEL:-default}"
   echo "effort=${EFFORT:-default}"
