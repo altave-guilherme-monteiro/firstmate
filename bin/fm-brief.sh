@@ -57,6 +57,13 @@
 # it carries the AGENTS.md authoring bar (widely useful knowledge only, pointers
 # over copied detail) and has the crewmate add the fm-ensure-agents-md.sh
 # self-governance section when a touched project AGENTS.md lacks it.
+# Every ship and scout scaffold also carries two suggestion-grade tool notes that
+# no hook or pipeline enforces: run semgrep read-only over the worktree and weigh
+# only the WARNING and ERROR findings the task's own changes touch, and consult
+# the context7 MCP tool for live library, framework, SDK, and CLI documentation
+# instead of relying on memory. Each degrades to a note when its tool is absent,
+# like the codebase-graph step, and both render as one string shared by every
+# delivery mode, so neither names a PR that local-only never opens.
 # Refuses to overwrite an existing brief.
 set -eu
 
