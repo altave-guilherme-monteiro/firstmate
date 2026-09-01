@@ -570,6 +570,7 @@ These skills are not captain-invocable; load them only at their precise triggers
 - `firstmate-codexapp` - load before coordinating a visible Codex Desktop thread, evaluating a Codex App backend request, or reconciling Codex Desktop host-tool smoke evidence for Firstmate work.
 - `codebase-graph` - load before briefing a crewmate that must trace structure, when running `bin/fm-graphify-setup.sh`, when a `graphify` query returns nothing or errors, or when a built graph may be stale after edits.
 - `firstmate-coding-guidelines` - load before changing firstmate's shared, tracked material, as defined by section 1's list, whether editing directly or briefing a crewmate for a firstmate-repo task.
+- `nabors-programme` - load before bumping a Sauron filter, cutting a NABORS version, publishing a NABORS image, or verifying what a NABORS box (QA or rig) is actually running.
 
 ## 14. Relay
 
