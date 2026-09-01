@@ -5,6 +5,31 @@ description: How the NABORS Sauron build is versioned, assembled, and published 
 
 # NABORS Sauron build and publish
 
+## Standing rule: NABORS work happens on each repo's `nabors` branch (captain, 2026-09-01)
+
+We always work on the `nabors` branch of every repository for NABORS work. The two exceptions:
+`witsml-parser` and `altave-drillfloor-data-server` (DDS) stay on `main`, because they are used
+only by this project, so their `main` IS the NABORS line.
+
+**Open conflict, found and not resolved by this skill:** `sauron@origin/nabors`'s `.gitmodules`
+declares 64 filter submodules. Checked live against every declared URL
+(`git ls-remote --heads <url> nabors`, 2026-09-01), only 4 have their own `nabors` branch at
+all: `altave-sauron-base`, `altave-zones-detection`, `altave-alert-emission`,
+`altave-efficiency-estimator`. The other 60 - including `altave-clip-handler` - exist only on
+`main`, and `sauron`'s submodule pointers for them are `main`-line commits. Neither is one of
+the captain's two named exceptions, so by the rule above every one of those 60 is out of
+compliance today. Even where a filter's own `nabors` branch does exist, sauron's pointer does
+not necessarily track it: `altave-sauron-base`'s current pointer (`b4d2790e`) is a commit on its
+`main` only, ahead of that repo's own `nabors` tip (`0e61f91`) - sauron is still assembling
+`altave-sauron-base` from `main` despite the branch existing. Whether every filter is meant to
+carry its own `nabors` branch, or only the ones actually customized for NABORS, is not answered
+anywhere in this tree - treat it as open rather than inferring either way.
+
+**Verify branch existence against the live remote, not a local clone.** A read-only local clone
+can simply be missing the fetch of a branch that exists upstream - `altave-sauron-base`'s local
+clone here showed no `nabors` branch until `git fetch origin` pulled it in. `git ls-remote
+--heads <url> nabors` is authoritative; an empty local `git branch -r` is not proof of absence.
+
 ## The component map (verified against `origin/nabors` in each repo, 2026-09-01)
 
 `sauron` is the framework: it loads detection filters as git submodules under `filters/`
@@ -18,15 +43,18 @@ The filters relevant to a "bump zones-detection" task:
 - `altave-alert-emission` (`filters/altave-alert-emission`) - turns a detection into an alert.
   Also has its own `origin/nabors` branch, diverged from `main`.
 - `altave-sauron-base` (`filters/altave-sauron-base`) - shared filter/frame/zone abstractions
-  every other filter is built on. Stays on `main` for NABORS; no `nabors` branch exists.
-- `altave-clip-handler` (`filters/altave-clip-handler`) - clip creation/upload library. Also
-  stays on `main`; no `nabors` branch.
+  every other filter is built on. Does have its own `origin/nabors` branch, but sauron's current
+  submodule pointer for it is a `main`-only commit - see the open conflict above.
+- `altave-clip-handler` (`filters/altave-clip-handler`) - clip creation/upload library. Has no
+  `nabors` branch at all; assembled from `main`.
 
 **The generalizable fact, not a zones-detection-only quirk:** any filter submodule *may* carry
-its own `origin/nabors` branch that has diverged from `main` and lags it. `sauron-base` and
-`clip-handler` don't; `zones-detection` and `alert-emission` do. Before touching a filter for a
-NABORS task, run `git branch -r | grep nabors` in that filter's own clone - never assume `main`
-is what NABORS ships.
+its own `origin/nabors` branch, diverged from and lagging `main` - but it is the exception, not
+the default. Of the 64 filters declared in `.gitmodules`, only `altave-sauron-base`,
+`altave-zones-detection`, `altave-alert-emission`, and `altave-efficiency-estimator` have one.
+Before touching a filter for a NABORS task, run `git ls-remote --heads <url> nabors` against its
+real remote - never assume `main` is what NABORS ships, and never trust an empty `git branch -r`
+in a local clone as proof no such branch exists.
 
 ## The version scheme: two lineages share one tag list
 
