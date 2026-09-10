@@ -1,0 +1,27 @@
+Fixture A: 522033-byte backlog.md with 3000 queued rows (MAX_ARG_STRLEN=131072)
+| build    | script                     | flag                       |  rc | E2BIG | schema                       | leftover tmp |
+| pre-fix  | fm-fleet-snapshot.sh       | --json                     |   1 |     1 | (no JSON)                    | 0 |
+    stderr: /tmp/fm-e2big-repro.Mky4gb/pre-fix/bin/fm-fleet-snapshot.sh: line 643: /usr/bin/jq: Argument list too long
+    stderr: fm-fleet-snapshot: main inventory summary failed
+| pre-fix  | fm-fleet-snapshot.sh       | --secondmate-home-summary  |   1 |     1 | (no JSON)                    | 0 |
+    stderr: /tmp/fm-e2big-repro.Mky4gb/pre-fix/bin/fm-fleet-snapshot.sh: line 671: /usr/bin/jq: Argument list too long
+    stderr: fm-fleet-snapshot: secondmate home summary failed
+| pre-fix  | fm-bearings-snapshot.sh    | --json                     |   1 |     1 | (no JSON)                    | 0 |
+    stderr: /tmp/fm-e2big-repro.Mky4gb/pre-fix/bin/fm-fleet-snapshot.sh: line 643: /usr/bin/jq: Argument list too long
+    stderr: fm-fleet-snapshot: main inventory summary failed
+| post-fix | fm-fleet-snapshot.sh       | --json                     |   0 |     0 | fm-fleet-snapshot.v1         | 0 |
+| post-fix | fm-fleet-snapshot.sh       | --secondmate-home-summary  |   0 |     0 | fm-secondmate-home-summary.v1 | 0 |
+| post-fix | fm-bearings-snapshot.sh    | --json                     |   0 |     0 | fm-bearings.v1               | 0 |
+post-fix backlog rows in snapshot: 3000
+
+Fixture B: 8 registered secondmates, each with a 12000-byte status line
+| build    | script                     | flag                       |  rc | E2BIG | schema                       | leftover tmp |
+| pre-fix  | fm-fleet-snapshot.sh       | --json                     |   1 |     1 | (no JSON)                    | 0 |
+    stderr: /tmp/fm-e2big-repro.Mky4gb/pre-fix/bin/fm-fleet-snapshot.sh: line 643: /usr/bin/jq: Argument list too long
+    stderr: fm-fleet-snapshot: main inventory summary failed
+| pre-fix  | fm-bearings-snapshot.sh    | --json                     |   1 |     1 | (no JSON)                    | 0 |
+    stderr: /tmp/fm-e2big-repro.Mky4gb/pre-fix/bin/fm-fleet-snapshot.sh: line 643: /usr/bin/jq: Argument list too long
+    stderr: fm-fleet-snapshot: main inventory summary failed
+| post-fix | fm-fleet-snapshot.sh       | --json                     |   0 |     0 | fm-fleet-snapshot.v1         | 0 |
+| post-fix | fm-bearings-snapshot.sh    | --json                     |   0 |     0 | fm-bearings.v1               | 0 |
+post-fix secondmate_current: 8 records, 395242 bytes
