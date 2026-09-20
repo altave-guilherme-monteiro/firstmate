@@ -191,7 +191,13 @@ The shared symptom is a healthy-looking pane with no work in progress, so each a
 
 First launch in a fresh worktree, or first ever on a machine, may show a trust or bypass-permissions confirmation.
 After every spawn, peek the pane within about 20 seconds.
-If such a dialog is showing, accept it from an active firstmate session using `FM_HOME=<this-firstmate-home> bin/fm-send.sh <window> --key Enter`, or the choice the dialog requires, unless `FM_HOME` is already set to the active firstmate home; verify the brief started processing.
+If such a dialog is showing, READ ITS CURRENT SELECTION BEFORE CONFIRMING: the affirmative option is not reliably preselected, and a bare Enter accepts whatever is highlighted.
+On 2026-09-20 a claude directory-trust dialog came up with `No, exit` selected, and an Enter sent by the documented recovery killed the agent before it had run a step.
+So capture the pane, find which option is highlighted, move to the affirmative one if it is not, and only then confirm: `FM_HOME=<this-firstmate-home> bin/fm-send.sh <window> --key Down` then `--key Enter` for that case, omitting `FM_HOME` when it is already the active firstmate home.
+Send Enter alone only when the capture proves the affirmative option is already highlighted.
+This procedure is the single owner for accepting any trust or bypass-permissions dialog on any harness; the per-harness sections below name only that harness's dialog text and how long its decision persists.
+An agent killed this way has lost nothing when it had not started its brief: relaunch it rather than treating the dead pane as lost work.
+Verify the brief started processing either way.
 
 Claude renders a predicted-next-prompt suggestion as dim/faint text inside an otherwise-empty composer after a turn completes.
 A plain `tmux capture-pane` cannot tell that ghost text apart from typed text.
@@ -226,7 +232,7 @@ An explicit `session:window` target has no meta, so its harness is unknown and t
 This is why the validation trigger (`$no-mistakes`) to a codex crew now lands on the first Enter instead of biting the popup.
 
 Directory trust dialog on first run per repo root: "Do you trust the contents of this directory?"
-Accept with Enter.
+Accept it with the read-the-selection-first procedure above; its default selection is unverified for this harness.
 The decision persists for the repo, so later worktrees of the same project skip it.
 
 Resume after exit with `codex resume <session-id>`.
@@ -288,7 +294,7 @@ Keep the brief as one positional argument.
 Multiple positional args become separate queued messages; `fm-spawn`'s template already does this correctly.
 
 Project trust dialog can appear on the first pi run in any not-yet-trusted directory, observed even on clean worktrees.
-Accept with Enter.
+Accept it with the read-the-selection-first procedure above; its default selection is unverified for this harness.
 The decision persists per path in `~/.pi/agent/trust.json`, so later spawns in the same worktree slot skip it.
 
 `fm-spawn` keeps the turn-end extension in `state/`, outside the worktree, because project-local extension files make the trust gate strictly worse and pollute the project.
@@ -483,7 +489,7 @@ Muse Code is a CREWMATE and SCOUT adapter only.
 | Interrupt | Single Escape, which closes the run with `terminal: cancelled` AND restores the interrupted prompt into the composer as real bright text, so `fm-control` follows Escape with `C-u` to clear it; `fm-send`'s legacy key path reads the same composer-clear table. |
 | Skill invocation | `/<skill>`, the claude/grok form. |
 | Autonomy | `--yolo`, which disables approval, disables the sandbox, and trusts the workspace for the run. |
-| Trust dialog | `Do you trust this workspace?` with `1 Trust and continue` preselected, accepted by Enter. `--yolo` suppresses it entirely, which is what firstmate relies on because every task gets a fresh worktree path. |
+| Trust dialog | `Do you trust this workspace?` with `1 Trust and continue` verified preselected, so Enter alone is safe here; still confirm the selection per the procedure above rather than relying on that across versions. `--yolo` suppresses it entirely, which is what firstmate relies on because every task gets a fresh worktree path. |
 | Environment marker | None. Detection is process ancestry on the anchored prefix `muse-bin-*`. The launch clears foreign primary markers before Muse starts so their higher detection precedence cannot override that ancestry. `MUSE_CURRENT_SESSION_LOG` is a session-log PATH rather than an identity, and its export to tool subprocesses is unverified. |
 | Composer | Bordered box whose prompt glyph is `⟩` (U+27E9) in truecolor `38;2;90;160;255`, luminance ~149.9 - the narrowest margin over the 128 ghost threshold in the fleet. Typed text is `38;2;204;211;219` (~209.8). No idle placeholder or ghost text was observed. |
 | Effort | `--reasoning-effort`, default `high`; see the launch-profile table above for the mapping. |
