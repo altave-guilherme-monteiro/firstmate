@@ -20,8 +20,20 @@ case "$*" in
 esac
 case "${1:-}" in
   display-message) printf 'firstmate\n'; exit 0 ;;
-  list-windows) [ -z "${FM_FAKE_WINDOWS:-}" ] || printf '%s\n' "$FM_FAKE_WINDOWS"; exit 0 ;;
-  has-session|new-session|new-window|kill-window) exit 0 ;;
+  list-windows)
+    [ -z "${FM_FAKE_WINDOWS:-}" ] || printf '%s\n' "$FM_FAKE_WINDOWS"
+    [ ! -f "$(dirname "$0")/windows" ] || cat "$(dirname "$0")/windows"
+    exit 0
+    ;;
+  new-window)
+    prev=
+    for a in "$@"; do
+      [ "$prev" = "-n" ] && printf '%s\n' "$a" >> "$(dirname "$0")/windows"
+      prev=$a
+    done
+    exit 0
+    ;;
+  has-session|new-session|kill-window) exit 0 ;;
   send-keys)
     if [ -n "${FM_FAKE_LAUNCH_LOG:-}" ]; then
       prev=
@@ -37,13 +49,11 @@ exit 0
 SH
   chmod +x "$fakebin/tmux"
   fm_fake_exit0 "$fakebin" treehouse
-  printf '%s\n' '#!/usr/bin/env bash' > "$fakebin/timeout"
-  cat >> "$fakebin/timeout" <<'SH'
-shift
-exec "$@"
-SH
-  chmod +x "$fakebin/timeout"
   printf '%s\n' "$fakebin"
+}
+
+write_brief() {
+  printf '%s\n' '# Task' "## Captain's intent" "Exercise the issue gate for $2." '' '## Firstmate spec' 'Record the issue linkage only.' > "$1"
 }
 
 make_case() {
@@ -55,9 +65,10 @@ make_case() {
   fakebin=$(make_fakebin "$case_dir/fake")
   mkdir -p "$home/data" "$home/projects" "$home/state" "$home/config" "$home/data/$id"
   printf 'claude\n' > "$home/config/crew-harness"
+  printf 'manual\n' > "$home/config/backlog-backend"
   fm_git_worktree "$proj" "$wt" "wt-$name"
   touch "$home/state/.last-watcher-beat"
-  printf 'brief for %s\n' "$id" > "$home/data/$id/brief.md"
+  write_brief "$home/data/$id/brief.md" "$id"
   printf '%s|%s|%s|%s|%s\n' "$home" "$proj" "$wt" "$fakebin" "$case_dir/launch.log"
 }
 
@@ -221,6 +232,7 @@ make_secondmate_case() {
   printf '# Firstmate\n' > "$sm/AGENTS.md"
   printf '%s\n' "$id" > "$sm/.fm-secondmate-home"
   printf 'charter\n' > "$sm/data/charter.md"
+  fm_git_init_commit "$sm"
   printf '%s|%s|%s\n' "$home" "$sm" "$fakebin"
 }
 
@@ -273,7 +285,7 @@ IFS='|' read -r HOME12 PROJ12 WT12 FAKEBIN12 LOG12 <<EOF
 $REC12
 EOF
 mkdir -p "$HOME12/data/$ID12B"
-printf 'brief for %s\n' "$ID12B" > "$HOME12/data/$ID12B/brief.md"
+write_brief "$HOME12/data/$ID12B/brief.md" "$ID12B"
 enable_tracker "$HOME12"
 out=$(run_spawn "$HOME12" "$WT12" "$FAKEBIN12" "$LOG12" \
   "$ID12A=$PROJ12" "$ID12B=$PROJ12" --mode no-mistakes --yolo off --issue FM-7)
