@@ -143,6 +143,7 @@ Upstream `bin/fm-brief.sh` appends the file to each change and investigation bri
 | User preference files change only by explicit instruction | `AGENTS.md`, `.agents/skills/stow/` |
 | Brief additions | `docs/fork/brief-include.md` |
 | Leads on the hc backend | `bin/fm-spawn.sh`, `docs/hc-backend.md`, `docs/configuration.md` |
+| Signed steering records, opt-in with `config/steer-signing` | `bin/fm-task-inbox-lib.sh`, `bin/fm-verify-steer.sh`, `bin/fm-brief.sh`, `docs/configuration.md` |
 
 ## Upstream rule - Active
 

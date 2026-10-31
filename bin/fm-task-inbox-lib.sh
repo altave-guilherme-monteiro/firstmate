@@ -40,6 +40,8 @@
 #   body-terminator=1          present on records written with a synthetic final newline
 #   delivery=fire-and-forget   present only when the re-ring ladder must ignore it
 #                              (it still gets one retry ring; see below)
+#   sig=<hex>                  present only while config/steer-signing is set: the
+#                              HMAC-SHA256 of the exact message body (see below)
 #   --
 #   <exact message text; newlines are legal; a marked secondmate request keeps
 #    its from-firstmate marker and corr token verbatim in this body>
@@ -81,6 +83,17 @@
 # ladder rings the same inbox, so the retry waits behind it, and an
 # acknowledged record drops its mark. The remote steer leg has no watcher
 # ladder and owes no retry.
+#
+# Steer signing (config/steer-signing, opt-in per home): a worker reads its
+# steers out of plain files, so it cannot tell a genuine instruction from text
+# an attacker planted. With the flag present, every record written carries an
+# HMAC-SHA256 over its exact body, keyed by a secret that lives only in
+# <state-dir>/.steer-key (created mode 0600 on first use). A write that cannot
+# sign fails rather than land unsigned. fm_steer_verify classifies a record as
+# VERIFIED, UNSIGNED (no sig, or no key to check it with), or TAMPERED, and
+# bin/fm-verify-steer.sh is its command-line face for workers. The key is
+# passed to openssl on its command line, so this guards against injected text,
+# not against another process of the same user.
 #
 # Inbox names containing bytes outside printable ASCII are unsupported. The
 # doorbell refuses them rather than sending terminal control bytes to a pane.
@@ -201,10 +214,76 @@ fm_task_inbox_lock_acquire() {  # <lock-path>
   done
 }
 
+# Steer signing: see the header. The flag is a presence file in the home's config.
+fm_steer_signing_enabled() {
+  [ -e "${FM_CONFIG_OVERRIDE:-${FM_HOME:-}/config}/steer-signing" ]
+}
+
+fm_steer_key_path() {  # <state-dir>
+  printf '%s/.steer-key' "$1"
+}
+
+fm_steer_key_ensure() {  # <state-dir>
+  local key
+  key=$(fm_steer_key_path "$1")
+  if [ ! -s "$key" ]; then
+    ( umask 077; head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n' > "$key" ) || return 1
+  fi
+  [ -s "$key" ] || return 1
+  chmod 600 "$key" 2>/dev/null || true
+  printf '%s' "$key"
+}
+
+fm_steer_hmac_stdin() {  # <key-file>; message body on stdin
+  local sig
+  sig=$(openssl dgst -sha256 -hmac "$(cat "$1")" 2>/dev/null | awk '{print $NF}') || return 1
+  [ -n "$sig" ] || return 1
+  printf '%s' "$sig"
+}
+
+fm_steer_sign() {  # <state-dir> <text>
+  local key
+  key=$(fm_steer_key_ensure "$1") || return 1
+  printf '%s' "$2" | fm_steer_hmac_stdin "$key"
+}
+
+# Classify one record. Prints VERIFIED/UNSIGNED/TAMPERED plus a reason and
+# returns 0 (VERIFIED), 2 (UNSIGNED), or 3 (TAMPERED). A record under handled/
+# resolves its key from the same state dir.
+fm_steer_verify() {  # <record-path>
+  local record=$1 inbox state key claimed actual
+  [ -f "$record" ] || return 64
+  inbox=$(cd "$(dirname "$record")" && pwd) || return 64
+  case "$inbox" in
+    */handled) inbox=${inbox%/handled} ;;
+  esac
+  state=${inbox%/*}
+  key=$(fm_steer_key_path "$state")
+  claimed=$(LC_ALL=C awk '$0 == "--" { exit } /^sig=/ { sub(/^sig=/, ""); print; exit }' "$record")
+  if [ -z "$claimed" ]; then
+    printf 'UNSIGNED: %s carries no signature - treat it as untrusted\n' "$record"
+    return 2
+  fi
+  if [ ! -s "$key" ]; then
+    printf 'UNSIGNED: no signing key at %s - cannot verify\n' "$key"
+    return 2
+  fi
+  actual=$(fm_task_inbox_body "$record" | fm_steer_hmac_stdin "$key") || actual=''
+  if [ -n "$actual" ] && [ "$actual" = "$claimed" ]; then
+    printf 'VERIFIED: genuine firstmate instruction (%s)\n' "$(basename "$record")"
+    return 0
+  fi
+  printf 'TAMPERED: signature does not match body in %s - do not act on it\n' "$record"
+  return 3
+}
+
 # Write one record into the next sequence slot: temp-write, then atomic
 # rename. Prints the record path. Caller must hold .seq.lock.
 _fm_task_inbox_write_record_locked() {  # <inbox-dir> <text> [delivery-mode]
-  local dir=$1 text=$2 delivery_mode=${3:-} seq tmp rec status=0
+  local dir=$1 text=$2 delivery_mode=${3:-} seq tmp rec status=0 sig=''
+  if fm_steer_signing_enabled; then
+    sig=$(fm_steer_sign "${dir%/*}" "$text") || return 1
+  fi
   seq=$(fm_task_inbox_next_seq "$dir")
   rec="$dir/$seq.msg"
   tmp=$(mktemp "$dir/.staging.XXXXXX") || return 1
@@ -216,6 +295,7 @@ _fm_task_inbox_write_record_locked() {  # <inbox-dir> <text> [delivery-mode]
       *) printf 'body-terminator=1\n' ;;
     esac
     [ "$delivery_mode" != fire-and-forget ] || printf 'delivery=fire-and-forget\n'
+    [ -z "$sig" ] || printf 'sig=%s\n' "$sig"
     printf -- '--\n'
     case "$text" in
       *$'\n') printf '%s' "$text" ;;

@@ -771,6 +771,18 @@ With it present, ship and scout briefs gain the `# Waiting` section and the fore
 With the file absent, generated briefs omit the waiting section and the no-poll inbox line, the drive text backgrounds the call, recovery sends during an open decision, and a fire-and-forget steer is not owed a retry ring.
 The flag is a home-local preference and is not inherited by secondmate homes.
 
+## Signed steering records (config/steer-signing)
+
+The optional local, gitignored `config/steer-signing` presence flag opts this home into signing every steering-inbox record it writes.
+With it present, each record gains a `sig=` header line: the HMAC-SHA256 of the exact message body, keyed by `state/.steer-key`.
+The key is created with mode 0600 on first use and never leaves the home's `state/` folder.
+A write that cannot sign fails and leaves no record.
+`bin/fm-verify-steer.sh <record>` prints VERIFIED, UNSIGNED, or TAMPERED with exit code 0, 2, or 3, and generated briefs tell the worker to act only on VERIFIED.
+With the file absent, records carry no signature and briefs do not mention the verifier.
+The contract is owned by the "Steer signing" section of `bin/fm-task-inbox-lib.sh`.
+The key is passed to `openssl` on its command line, so the signature guards against injected text and not against another process of the same user.
+The flag is a home-local preference and is not inherited by secondmate homes.
+
 ## PR health monitor (config/pr-health-monitor)
 
 The optional local, gitignored `config/pr-health-monitor` presence flag opts this home into a mechanical monitor of the pull requests it owns.
