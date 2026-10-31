@@ -16,7 +16,7 @@ This skill owns when to build and how to read the result.
 
 - Build once per crewmate worktree, as the early setup step the scout and ship briefs declare.
 - Rebuild with the same command after the crewmate's own edits change file structure; `graphify update` is incremental and caches unchanged files, so a rebuild costs far less than the first build.
-- The capability is default-off. `bin/fm-brief.sh` declares the build in generated scout and ship briefs only when this home carries the `config/codebase-graph` presence flag; create that file to opt in, remove it to opt out, and briefs generated without it never mention graphify.
+- The capability is default-off. The fork's tracked `docs/fork/brief-include.md` declares the build, and a home opts in by linking `config/brief-include.md` to it; remove the link to opt out, and briefs generated without it never mention graphify.
 - A crewmate whose brief declares the build follows the brief. Outside that declared trigger the script is opt-in per call, and a task that never asks a structural question can skip it; nothing depends on the graph existing.
 
 ## Which verb answers which question
