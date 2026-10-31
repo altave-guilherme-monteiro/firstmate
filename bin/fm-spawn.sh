@@ -2315,10 +2315,6 @@ if [ "$RELAUNCH" -eq 0 ]; then
     echo "error: backend=tern does not support --secondmate spawns yet" >&2
     exit 1
   fi
-  if [ "$BACKEND" = hc ] && [ "$KIND" = secondmate ]; then
-    echo "error: backend=hc does not support --secondmate spawns yet" >&2
-    exit 1
-  fi
   fm_backend_runtime_check "$BACKEND" || exit 1
   if [ "$BACKEND" = rex ]; then
     fm_backend_rex_local_server_ensure || exit 1

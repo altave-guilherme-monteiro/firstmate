@@ -66,7 +66,7 @@ graph TD
   It reads Altave Outlook and Teams.
   It does not need a YouTrack issue for personal work.
 - The current leads are NABORS, SATORO, and the assistant.
-- The `ops` lead is retired. Its work goes to the NABORS and SATORO leads.
+- The `ops` lead was retired on 2026-10-31. Its open backlog moved to the Orchestrator home, and its reports are in `data/ops-archive-2026-10-31/` of that home.
 
 ## Dispatch rules - Planned
 
@@ -94,10 +94,13 @@ graph TD
 - A lead stops when its queue is empty and its workers are complete. Its home keeps all state.
 - A lead is retired when PMO closes its programme. Retirement refuses while work is not complete.
 
-## Runtime - Planned
+## Runtime - Active
 
-- Herdr is the only runtime backend. `config/backend` contains `herdr`. tmux is not used.
-- Each home has one Herdr workspace. Each worker is one tab in the workspace of its lead.
+- The workspace is the Herdr app (Herdr.app on herdr-core), not the `herdr` terminal program.
+- The runtime backend is therefore `hc` (`docs/hc-backend.md`). Each home sets `config/backend` to `hc`. tmux is not used for new work.
+- Each task is an hc terminal with `herdr.space` and `herdr.tab` labels, so it shows as a tab in the Herdr.app space of its home.
+- A tab takes its name from the terminal title.
+- Upstream hc refuses leads. The fork removes that refusal, so a lead runs as an hc terminal and its workers show in the space of the lead home. Remove this fork change when upstream supports leads on hc.
 
 ## Resource allowances - Planned
 
@@ -121,7 +124,7 @@ graph TD
 
 ## Brief additions - Active
 
-`docs/fork/brief-include.md` contains the standing worker instructions of the fork: the code graph, the security scan, the library documentation, and the no-mistakes rebase gate check.
+`docs/fork/brief-include.md` contains the standing worker instructions of the fork: the code graph, the security scan, the library documentation, the no-mistakes rebase gate check, the rule that workers do not run services on this machine, and the PR review loop.
 Each home links `config/brief-include.md` to that file.
 Upstream `bin/fm-brief.sh` appends the file to each change and investigation brief.
 
@@ -139,6 +142,7 @@ Upstream `bin/fm-brief.sh` appends the file to each change and investigation bri
 | NABORS version skill | `.agents/skills/nabors-programme/` |
 | User preference files change only by explicit instruction | `AGENTS.md`, `.agents/skills/stow/` |
 | Brief additions | `docs/fork/brief-include.md` |
+| Leads on the hc backend | `bin/fm-spawn.sh`, `docs/hc-backend.md`, `docs/configuration.md` |
 
 ## Upstream rule - Active
 

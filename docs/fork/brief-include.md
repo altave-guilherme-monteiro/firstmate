@@ -35,3 +35,22 @@ Before you respond to that gate, do these steps:
 Do not respond with `--action approve` in this condition, because that action adds commits that are already merged to your PR.
 Do not restart the shared no-mistakes daemon, because a restart stops the runs of other workers.
 If the comparison does not give a clear result, escalate.
+
+## No services on this machine
+
+This machine is a laptop that also runs the supervisor and its other workers.
+Do not run Docker (`docker compose`, `docker run`, `docker build`) on it.
+Do not start a dev server, a local database, a broker, or a browser test harness on it.
+Run services only on a remote host over ssh.
+Verify with unit tests that need no running service, or on the remote target that your task names.
+If the verification needs a running stack and no remote target is available, append `blocked: needs a remote host to run on` to your status file and stop.
+
+## PR review loop
+
+If your task opens a PR, request the automated review after the PR exists: post exactly `/review` as a PR comment with `gh-axi pr comment <number> --body '/review'`.
+The reviewer does not start by itself, so a PR without that comment is not reviewed.
+Read each finding that the review returns.
+For each finding in the scope of your task, push a fix commit to the same branch.
+Post `/review` again only after you push fixes, and stop when the review returns no finding in scope.
+A finding is out of scope when its fix expands the task, changes behavior that nobody asked for, or needs a decision that is not yours. Escalate those findings and do not fix them.
+Do not review your own work, do not argue with a reviewer, and do not resolve the review thread of another person.
