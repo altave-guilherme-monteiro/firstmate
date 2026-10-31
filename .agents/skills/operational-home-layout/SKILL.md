@@ -30,6 +30,7 @@ config/crew-dispatch.json  optional crewmate dispatch profiles; LOCAL, gitignore
 config/project-capacity  optional per-machine count of workers each named project admits at once, read from the root home by every local home; LOCAL, gitignored; see docs/configuration.md "Project capacity"
 config/secondmate-harness  primary-local secondmate runtime pins; see docs/configuration.md "Choose the secondmate harness" for schema, precedence, and inheritance
 config/lane-capacity  optional lane cap and limits for this home, read by bin/fm-capacity.sh and the opt-in that makes its watcher publish state/lane-capacity.json; LOCAL, gitignored, not inherited by secondmate homes; see docs/configuration.md "Lane capacity"
+config/resource-limits  optional memory and CPU allowance of this home's systemd user slice for hc terminals; LOCAL, gitignored, not inherited by secondmate homes; see docs/configuration.md "Resource limits"
 config/backlog-backend  backlog backend override; LOCAL, gitignored; absent or "tasks-axi" = the configured tasks-axi backend, "manual" = force routine backlog updates to hand-editing; inherited by secondmate homes (section 10)
 config/backend  runtime session-provider backend override for new tasks; LOCAL, gitignored; docs/configuration.md "Runtime backend" owns supported values, selection, and limits; inherited by secondmate homes under the primary-authoritative contract in secondmate-provisioning
 config/t3code-token  LOCAL, gitignored T3 Code mcp-client credential; docs/t3code-backend.md "Sign-in" owns minting, expiry, and secondmate linking

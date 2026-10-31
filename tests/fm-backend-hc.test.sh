@@ -87,6 +87,26 @@ expect_refused() {
   [ "$rc" -ne 0 ] || fail "expected a refusal from: ${*: -1}"
 }
 
+# add_systemd_fakes <dir>: systemctl and systemd-run stubs in the case's
+# fakebin. Both log to <dir>/systemd.log; systemd-run exits with
+# <dir>/sdrun-exit (default 0); `systemctl show` prints <dir>/total-max
+# (default 9663676416) for MemoryMax.
+add_systemd_fakes() {  # <dir>
+  cat > "$1/fakebin/systemctl" <<'SH'
+#!/usr/bin/env bash
+D="${FAKE_HC_DIR:?}"
+printf 'systemctl %s\n' "$*" >> "$D/systemd.log"
+case "$*" in *show*) cat "$D/total-max" 2>/dev/null || echo 9663676416 ;; esac
+SH
+  cat > "$1/fakebin/systemd-run" <<'SH'
+#!/usr/bin/env bash
+D="${FAKE_HC_DIR:?}"
+printf 'systemd-run %s\n' "$*" >> "$D/systemd.log"
+exit "$(cat "$D/sdrun-exit" 2>/dev/null || echo 0)"
+SH
+  chmod +x "$1/fakebin/systemctl" "$1/fakebin/systemd-run"
+}
+
 FM_TEST_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 test_hc_is_spawn_capable_and_never_autodetected() {
@@ -260,6 +280,76 @@ test_endpoint_validation_binds_hc_meta() {
   pass "hc: endpoint validation requires window to equal hc_session:hc_terminal"
 }
 
+# shellcheck disable=SC2016 # the inner shell expands it
+test_create_task_scopes_the_shell_into_the_home_slice() {
+  local out run
+  setup_case limits
+  add_systemd_fakes "$D"
+  printf '{"address":"t9"}\n' > "$D/run.json"
+  mkdir -p "$HOMEDIR/config"
+  printf 'memory_high=4G\nmemory_max=5G\ncpu_quota=400%%\ntotal_memory_max=9G\n' > "$HOMEDIR/config/resource-limits"
+  out=$(hc_shell 'fm_backend_hc_create_task fmtest fm-a1 /proj "$FM_HOME"' 2>&1)
+  assert_equals "$out" t9 "a scoped create_task prints only the address"
+  run=$(grep $'\x1frun\x1f' "$D/log")
+  assert_contains "$run" $'\x1f--\x1fsystemd-run\x1f--user\x1f--scope\x1f--quiet\x1f--collect\x1f--slice=fm-main_' "the shell must start in a scope under the home slice"
+  assert_contains "$(cat "$D/systemd.log")" "set-property --runtime fm.slice MemoryMax=9G" "the total allowance must go on fm.slice"
+  assert_contains "$(cat "$D/systemd.log")" "MemoryHigh=4G MemoryMax=5G CPUQuota=400%" "the home limits must go on the home slice"
+  pass "hc: create_task runs the shell in a scope under the home slice with its limits"
+}
+
+# shellcheck disable=SC2016 # the inner shell expands it
+test_create_task_without_systemd_warns_and_launches_unchanged() {
+  local out
+  setup_case limits-nosystemd
+  add_systemd_fakes "$D"
+  printf '1\n' > "$D/sdrun-exit"
+  printf '{"address":"t9"}\n' > "$D/run.json"
+  mkdir -p "$HOMEDIR/config"
+  printf 'memory_max=5G\n' > "$HOMEDIR/config/resource-limits"
+  out=$(hc_shell 'fm_backend_hc_create_task fmtest fm-a1 /proj "$FM_HOME"' 2>&1)
+  assert_contains "$out" "warning: systemd user is not available" "a missing systemd user must warn"
+  assert_contains "$out" t9 "the terminal must still start"
+  assert_not_contains "$(grep $'\x1frun\x1f' "$D/log")" systemd-run "the launch must be unchanged"
+  pass "hc: without systemd user, create_task warns and launches unchanged"
+}
+
+# shellcheck disable=SC2016 # the inner shell expands it
+test_create_task_without_limits_file_touches_no_systemd() {
+  setup_case limits-absent
+  add_systemd_fakes "$D"
+  printf '{"address":"t9"}\n' > "$D/run.json"
+  hc_shell 'fm_backend_hc_create_task fmtest fm-a1 /proj "$FM_HOME"' >/dev/null 2>&1 || fail "create_task without limits must succeed"
+  [ ! -e "$D/systemd.log" ] || fail "no systemd call may happen without config/resource-limits"
+  assert_not_contains "$(grep $'\x1frun\x1f' "$D/log")" systemd-run "the launch must be unchanged"
+  pass "hc: a home without config/resource-limits launches unchanged"
+}
+
+# shellcheck disable=SC2016 # the inner shell expands it
+test_create_task_refuses_an_invalid_limits_file() {
+  setup_case limits-invalid
+  add_systemd_fakes "$D"
+  printf '{"address":"t9"}\n' > "$D/run.json"
+  mkdir -p "$HOMEDIR/config"
+  printf 'memory_max=lots\n' > "$HOMEDIR/config/resource-limits"
+  expect_refused hc_shell 'fm_backend_hc_create_task fmtest fm-a1 /proj "$FM_HOME"'
+  assert_not_contains "$(cat "$D/log")" $'\x1frun\x1f' "an invalid limits file must start no terminal"
+  pass "hc: an invalid config/resource-limits refuses before any terminal starts"
+}
+
+test_lead_home_gets_its_own_slice() {
+  local lead
+  setup_case limits-lead
+  add_systemd_fakes "$D"
+  printf '{"address":"t9"}\n' > "$D/run.json"
+  lead="$D/lead"
+  mkdir -p "$lead/config"
+  printf 'nabors\n' > "$lead/.fm-secondmate-home"
+  printf 'memory_max=3G\n' > "$lead/config/resource-limits"
+  hc_shell 'fm_backend_hc_create_task fmtest fm-nabors /proj "'"$lead"'"' >/dev/null 2>&1 || fail "a lead create_task must succeed"
+  assert_contains "$(grep $'\x1frun\x1f' "$D/log")" "--slice=fm-lead_nabors_" "a lead runs in its own slice"
+  pass "hc: a lead home runs in its own slice named after the lead"
+}
+
 fm_test_run \
   test_hc_is_spawn_capable_and_never_autodetected \
   test_create_task_is_independent_labeled_and_refuses_duplicates \
@@ -272,4 +362,9 @@ fm_test_run \
   test_kill_proves_the_terminal_is_gone \
   test_kill_refuses_another_tasks_terminal \
   test_capture_and_current_path_read_the_recorded_terminal \
-  test_endpoint_validation_binds_hc_meta
+  test_endpoint_validation_binds_hc_meta \
+  test_create_task_scopes_the_shell_into_the_home_slice \
+  test_create_task_without_systemd_warns_and_launches_unchanged \
+  test_create_task_without_limits_file_touches_no_systemd \
+  test_create_task_refuses_an_invalid_limits_file \
+  test_lead_home_gets_its_own_slice

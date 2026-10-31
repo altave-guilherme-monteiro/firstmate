@@ -853,8 +853,37 @@ A pressure file is any producer of the `lookout.beat` 1.x shape, read by its own
 While the file exists, the watcher runs `bin/fm-capacity.sh --publish` detached at most every 30 seconds, writing this home's lane facts to `state/lane-capacity.json`: its lanes, its cap and limits, its machine's pressure and boots, its watcher's freshness, and its own admission verdict.
 Publishing is best-effort and never changes what the watcher does; no spawn reads the verdict.
 `bin/fm-capacity.sh --admit` is an advisory check of the same verdict: it exits 0 when the verdict admits or the file is absent, and reports the reasons on stderr with exit 75 when it does not.
+With `config/resource-limits` present, a home slice with no free memory also makes it exit 75, with or without this file.
 No Firstmate script calls it.
 The script's header owns the report line, the published document's fields, the verdict, the beat freshness rules, the host-constraint thresholds, and the probe fallbacks.
+
+## Resource limits (config/resource-limits)
+
+The optional local, gitignored `config/resource-limits` file gives this home its own memory and CPU allowance on the `hc` backend.
+Each hc terminal that this home starts, including a lead started from it, runs in a systemd user scope under the slice of the home that owns the agent: the lead home for a lead, this home otherwise.
+The workers that a lead starts read the lead home's file and land in the same slice as the lead.
+Each home slice is a child of `fm.slice`, and systemd caps a child at its parent, so the per-home allowances cascade under the total.
+With the file absent nothing changes: the terminal starts in the hc core's own unit as before.
+The file is a per-home choice and is not inherited by secondmate homes.
+
+One `key=value` per line, with `#` starting a comment:
+
+```text
+memory_high=4G          # this home's slice: memory is reclaimed above this
+memory_max=5G           # this home's slice: the hard stop
+cpu_quota=400%          # this home's slice: 100% is one core
+total_memory_high=8G    # fm.slice, the shared total; set it in the main home
+total_memory_max=9G
+total_cpu_quota=1200%
+```
+
+Every key is optional.
+A size is bytes with an optional `K`, `M`, `G`, or `T` suffix, or `infinity`; a quota is a percentage.
+An unknown key or a malformed value makes the file invalid: the spawn refuses and `bin/fm-capacity.sh` exits 1 naming the line.
+The limits are applied with `systemctl --user set-property --runtime` at each hc spawn, so they last until the next reboot or the next spawn.
+When systemd user is not available, the spawn warns and launches unchanged.
+A fresh hc spawn whose slice has under 1 GB free below `memory_high`, else `memory_max`, prints `deferred:` and exits 75, and the backlog item stays queued.
+`bin/fm-capacity.sh` reports the slice and its free memory, and `bin/fm-resource-limits-lib.sh` owns the slice names and the mechanics.
 
 ## PR-ready line after green (config/ready-after-green)
 

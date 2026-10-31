@@ -55,6 +55,7 @@ An input, capture, or close that carries the task label refuses a terminal whose
 | --- | --- |
 | Container ensure | `hc server status` |
 | Create task | `hc run --bg --no-parent --outlive-parent --no-notify --cwd <project> --label ...` |
+| Resource limits | with `config/resource-limits`, `hc run ... -- systemd-run --user --scope --slice=<home slice> -- $SHELL` (`docs/configuration.md` "Resource limits") |
 | Capture | `hc read --lines <n>` |
 | Visible capture | `hc read --lines 0` |
 | Send a line and submit | `hc send` |

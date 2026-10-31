@@ -102,25 +102,34 @@ graph TD
 - A tab takes its name from the terminal title.
 - Upstream hc refuses leads. The fork removes that refusal, so a lead runs as an hc terminal and its workers show in the space of the lead home. Remove this fork change when upstream supports leads on hc.
 
-## Resource allowances - Planned
+## Resource allowances - Active
 
 Linux control groups (systemd user slices) enforce the allowances.
 The allowances cascade: a child cannot use more than its parent.
 
 ```mermaid
 graph TD
-  F[fm.slice total allowance] --> FO[fm-orchestrator.slice]
-  F --> FN[fm-lead-nabors.slice]
-  F --> FS[fm-lead-satoro.slice]
-  F --> FA[fm-lead-assistant.slice]
-  FN --> FNW[one scope for each worker]
+  F[fm.slice total allowance] --> FO[fm-main slice of the Orchestrator home]
+  F --> FN[fm-lead_nabors slice]
+  F --> FS[fm-lead_satoro slice]
+  F --> FA[fm-lead_assistant slice]
+  FN --> FNW[one scope for each lead or worker terminal]
 ```
 
-- Each slice has `CPUQuota`, `MemoryHigh`, and `MemoryMax`.
-- The launch of each agent and worker goes into the slice of its home.
-- A dispatch refuses when the slice of the home has no free allowance.
-- The Orchestrator and each lead read the use of their slice before each dispatch.
-- A Herdr tab named `resources` shows the live use and the allowance of each slice.
+- Each home sets its allowance in `config/resource-limits`: `memory_high`, `memory_max`, and `cpu_quota`.
+- The main home also sets the total allowance on `fm.slice` with the `total_` keys.
+- `docs/configuration.md` "Resource limits" owns the file format.
+- On the `hc` backend, each lead terminal and each worker terminal starts in a scope under the slice of its home.
+- A dispatch refuses when the slice of the home has under 1 GB of free memory.
+- `bin/fm-capacity.sh` shows the slice and its free memory on its first line (`slice=` and `slice_free_mb=`) and in its `Slice:` line.
+- A terminal that leaves the hc core unit for a scope is no longer under the `hc-hold-` drop-in limits, so the total allowance must be on `fm.slice`.
+- No tracked panel script exists. To show each slice in the `resources` tab, use this command:
+
+```bash
+systemctl --user list-units --plain --no-legend 'fm-*.slice' | awk '{print $1}' | while read -r u; do
+  systemctl --user show "$u" -p Id -p MemoryCurrent -p MemoryHigh -p MemoryMax -p CPUQuotaPerSecUSec | paste -sd ' '
+done
+```
 
 ## Brief additions - Active
 
