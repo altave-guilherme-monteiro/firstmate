@@ -14,3 +14,6 @@ config/
 graphify-out/
 .playwright-mcp/
 /*.png
+.claude/settings.local.json
+
+.tools/
