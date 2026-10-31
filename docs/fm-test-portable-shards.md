@@ -133,6 +133,31 @@ The layout uses fifteen long-lived Linux jobs (ten serial, two parallel, Herdr, 
 Compare complete before/after runs, preserve cancelled and partial-run evidence, and measure a representative normal-run sample before claiming a P95 improvement.
 The workflow retains per-PR supersession and keeps only the newest of close main pushes' runs, without changing the compliance workflow's event semantics.
 
+## Affected-only pull request runs
+
+This section is a fork addition; [`docs/fork/README.md`](fork/README.md) lists it.
+A pull request runs only the test suites that its changed files reach.
+A push to `main` always runs the full suite.
+`bin/fm-test-run.sh` owns the rule: `--affected` keeps only the selected scripts that the `--changed` path-to-suite map reaches from the diff against `--base`.
+`--ci-scope` prints `full` with the reason, or `affected` with the suite count, and runs nothing.
+
+The selection stays full in these cases:
+
+- The diff touches `bin/fm-test-run.sh`, `bin/fm-test-isolation-proof.sh`, a file under `.github/workflows/`, or `tests/lib.sh`.
+- The diff touches a path that has no test mapping.
+- The diff reaches more than `AFFECTED_FULL_THRESHOLD` scripts, which covers the shared libraries that many suites source.
+- The base ref does not exist.
+
+Each lane job in `.github/workflows/ci.yml` runs a `Select affected tests` step first.
+The step runs on pull requests only and skips every later step of the job when the lane has no affected script.
+A job with no work still reports success, so the required check names do not change.
+The macOS job runs only when the scope is full or the diff changes a `.sh` file.
+
+These checks run on every pull request, whatever the diff touches: lint, the coverage guard, and the repo invariants.
+The coverage guard still proves that the lanes cover every `tests/*.test.sh` script, because `--check-coverage` ignores `--affected`.
+The rule changes which suites run and never what a suite checks.
+`tests/fm-test-run.test.sh` holds the selection rule in `test_affected_narrows_and_keeps_full_for_shared_paths`.
+
 ## Local entry points
 
 [CONTRIBUTING.md](../CONTRIBUTING.md) owns the local test policy and common entry points.

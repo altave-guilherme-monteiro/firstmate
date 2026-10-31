@@ -459,6 +459,77 @@ test_changed_bin_reference_selects_per_script_not_per_family() {
   pass "a bin reference selects the referencing scripts, and consumers still select their curated families"
 }
 
+# --affected narrows a selection to the suites the diff reaches, and keeps the
+# whole selection for the paths and breadth that make narrowing unsafe.
+test_affected_narrows_and_keeps_full_for_shared_paths() {
+  local tmp repo listed scope all_listed shared rc
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/fm-test-run-affected.XXXXXX")
+  repo="$tmp/repo"
+  init_changed_fixture_repo "$repo"
+  all_listed=$(cd "$repo" && bin/fm-test-run.sh --list --all)
+
+  printf '\n' >>"$repo/bin/fm-procevent-quota.sh"
+  scope=$(cd "$repo" && bin/fm-test-run.sh --ci-scope --base HEAD)
+  case "$scope" in
+    affected*) ;;
+    *) fail "a bin change that reaches few suites must scope to affected: $scope" ;;
+  esac
+  listed=$(cd "$repo" && bin/fm-test-run.sh --list --all --affected --base HEAD)
+  assert_contains "$listed" "tests/fm-procevent-quota.test.sh" "the suite naming the changed script stays selected"
+  [ "$listed" != "$all_listed" ] || fail "--affected must narrow --all for a one-script change"
+  case "$listed" in
+    *tests/fm-brief.test.sh*) fail "--affected kept an unrelated suite: $listed" ;;
+  esac
+  git -C "$repo" checkout -q -- bin/fm-procevent-quota.sh
+
+  printf 'notes\n' >"$repo/docs/unrelated-notes.md"
+  listed=$(cd "$repo" && bin/fm-test-run.sh --list --all --affected --base HEAD)
+  [ -z "$listed" ] || fail "a documentation-only change must select nothing: $listed"
+  rm -f "$repo/docs/unrelated-notes.md"
+
+  for shared in bin/fm-test-run.sh tests/lib.sh; do
+    printf '\n' >>"$repo/$shared"
+    scope=$(cd "$repo" && bin/fm-test-run.sh --ci-scope --base HEAD)
+    case "$scope" in
+      "full"*"$shared"*) ;;
+      *) fail "$shared must force the full suite: $scope" ;;
+    esac
+    listed=$(cd "$repo" && bin/fm-test-run.sh --list --all --affected --base HEAD 2>/dev/null)
+    [ "$listed" = "$all_listed" ] || fail "$shared must keep the whole selection under --affected"
+    git -C "$repo" checkout -q -- "$shared"
+  done
+
+  mkdir -p "$repo/.github/workflows"
+  printf 'name: x\n' >"$repo/.github/workflows/ci.yml"
+  scope=$(cd "$repo" && bin/fm-test-run.sh --ci-scope --base HEAD)
+  case "$scope" in
+    "full"*".github/workflows/ci.yml"*) ;;
+    *) fail "a workflow change must force the full suite: $scope" ;;
+  esac
+  rm -rf "$repo/.github"
+
+  printf '\n' >>"$repo/src/unmapped.ts"
+  scope=$(cd "$repo" && bin/fm-test-run.sh --ci-scope --base HEAD)
+  case "$scope" in
+    "full"*"src/unmapped.ts"*) ;;
+    *) fail "a path with no test mapping must force the full suite: $scope" ;;
+  esac
+  git -C "$repo" checkout -q -- src/unmapped.ts
+
+  scope=$(cd "$repo" && bin/fm-test-run.sh --ci-scope --base no-such-ref)
+  case "$scope" in
+    "full"*"no-such-ref"*) ;;
+    *) fail "a missing base ref must force the full suite: $scope" ;;
+  esac
+
+  rc=0
+  (cd "$repo" && bin/fm-test-run.sh --list --changed --affected --base HEAD) >/dev/null 2>&1 || rc=$?
+  [ "$rc" -eq 2 ] || fail "--affected with --changed must be refused, got $rc"
+
+  rm -rf "$tmp"
+  pass "--affected narrows to reached suites and keeps the full selection for shared paths, unmapped paths, and a missing base"
+}
+
 # Exercise begin/end markers from real fixture processes to prove the automatic
 # changed-suite default and its explicit serial override.
 test_changed_uses_bounded_automatic_concurrency() {
@@ -1904,6 +1975,7 @@ test_changed_runner_surfaces_select_their_family
 test_shell_line_ending_policy_selects_runner_contract
 test_changed_dependency_selection_and_unmapped_failure
 test_changed_bin_reference_selects_per_script_not_per_family
+test_affected_narrows_and_keeps_full_for_shared_paths
 test_changed_uses_bounded_automatic_concurrency
 test_windows_posix_mode_emulation_does_not_fail_parallel_runs
 test_script_list_uses_bounded_automatic_concurrency

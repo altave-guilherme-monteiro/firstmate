@@ -13,6 +13,17 @@
 #   fm-test-run.sh --proven-isolated
 #   fm-test-run.sh tests/<name>.test.sh [more scripts...]
 #
+# Affected-only narrowing (fork addition, docs/fm-test-portable-shards.md
+# "Affected-only pull request runs"): --affected after --all, --family, --lane,
+# --proven-isolated, or script paths keeps only the selected scripts that the
+# --changed map says the diff against --base reaches. It keeps the whole
+# selection when the diff touches this runner, the isolation proof, a workflow,
+# tests/lib.sh, a path with no test mapping, or more than
+# AFFECTED_FULL_THRESHOLD scripts, or when the base ref is missing.
+#   fm-test-run.sh --lane portable-serial-3of10 --affected --base origin/main
+#   fm-test-run.sh --ci-scope [--base <git-ref>]   (prints "full<TAB>reason" or
+#                                                   "affected<TAB>count")
+#
 # Inspection (no execution):
 #   fm-test-run.sh --list --all
 #   fm-test-run.sh --list --family <name>
@@ -177,6 +188,12 @@ AGGREGATE_OUT=
 FAMILY=
 LANE=
 BASE_REF=origin/main
+AFFECTED=0
+CI_SCOPE=0
+AFFECTED_SCRIPTS=()
+AFFECTED_FULL_REASON=
+CHANGED_UNMAPPED_FATAL=1
+CHANGED_UNMAPPED=()
 JSON_PATH=
 SCRIPTS=()
 EXCLUDE_FAMILIES=()
@@ -197,6 +214,11 @@ PER_SCRIPT_TIMEOUT_SECS=0
 # bounded failure instead of an unbounded suite, which is the shape that
 # silently outruns a caller's invocation budget.
 CHANGED_DEFAULT_TIMEOUT_SECS=1500
+
+# --affected keeps the whole selection once the diff reaches more scripts than
+# this: a change that wide saves little and is the shared-library case the
+# narrowing must not under-test. About a sixth of the suite.
+AFFECTED_FULL_THRESHOLD=50
 
 # How many separate-runner shards the portable serial remainder splits into.
 # One owner: CI lane names carry this count and are refused when they disagree.
@@ -1893,6 +1915,13 @@ families_for_changed_path() {
   esac
 }
 
+changed_paths() {
+  local base=$1
+  git -C "$ROOT" diff --name-only "${base}...HEAD" 2>/dev/null
+  git -C "$ROOT" diff --name-only HEAD 2>/dev/null
+  git -C "$ROOT" ls-files --others --exclude-standard 2>/dev/null
+}
+
 select_changed() {
   local base=$1 path entry fam script_name s
   local -a wanted_families=()
@@ -1912,16 +1941,17 @@ select_changed() {
           wanted_scripts+=("$script_name")
           ;;
         __unmapped__:*)
-          die "no changed-test mapping for source path: ${entry#__unmapped__:}"
+          if [ "$CHANGED_UNMAPPED_FATAL" -eq 1 ]; then
+            die "no changed-test mapping for source path: ${entry#__unmapped__:}"
+          fi
+          CHANGED_UNMAPPED+=("${entry#__unmapped__:}")
           ;;
         *)
           wanted_families+=("$entry")
           ;;
       esac
     done < <(families_for_changed_path "$path")
-  done < <(git -C "$ROOT" diff --name-only "${base}...HEAD" 2>/dev/null; \
-           git -C "$ROOT" diff --name-only HEAD 2>/dev/null; \
-           git -C "$ROOT" ls-files --others --exclude-standard 2>/dev/null)
+  done < <(changed_paths "$base")
 
   # Dedup families
   local f seen_f
@@ -1998,6 +2028,71 @@ apply_exclude_families() {
     [ "$keep" -eq 1 ] && kept+=("$s")
   done
   SCRIPTS=("${kept[@]+"${kept[@]}"}")
+}
+
+affected_shared_path() {
+  case "$1" in
+    bin/fm-test-run.sh|bin/fm-test-isolation-proof.sh|.github/workflows/*|tests/lib.sh)
+      return 0
+      ;;
+  esac
+  return 1
+}
+
+affected_resolve() {
+  local path saved_count
+  local -a saved=()
+  AFFECTED_FULL_REASON=
+  AFFECTED_SCRIPTS=()
+  CHANGED_UNMAPPED=()
+  if ! git -C "$ROOT" rev-parse --verify "$BASE_REF" >/dev/null 2>&1; then
+    AFFECTED_FULL_REASON="base ref not found: $BASE_REF"
+    return 0
+  fi
+  while IFS= read -r path; do
+    [ -n "$path" ] || continue
+    if affected_shared_path "$path"; then
+      AFFECTED_FULL_REASON="shared path changed: $path"
+      return 0
+    fi
+  done < <(changed_paths "$BASE_REF")
+  saved=("${SCRIPTS[@]+"${SCRIPTS[@]}"}")
+  SCRIPTS=()
+  CHANGED_UNMAPPED_FATAL=0
+  select_changed "$BASE_REF"
+  CHANGED_UNMAPPED_FATAL=1
+  AFFECTED_SCRIPTS=("${SCRIPTS[@]+"${SCRIPTS[@]}"}")
+  SCRIPTS=("${saved[@]+"${saved[@]}"}")
+  saved_count=${#AFFECTED_SCRIPTS[@]}
+  if [ "${#CHANGED_UNMAPPED[@]}" -gt 0 ]; then
+    AFFECTED_FULL_REASON="no test mapping for changed path: ${CHANGED_UNMAPPED[0]}"
+  elif [ "$saved_count" -gt "$AFFECTED_FULL_THRESHOLD" ]; then
+    AFFECTED_FULL_REASON="$saved_count scripts affected, above $AFFECTED_FULL_THRESHOLD"
+  fi
+}
+
+apply_affected() {
+  local s a keep
+  local -a kept=()
+  [ "$AFFECTED" -eq 1 ] || return 0
+  affected_resolve
+  if [ -n "$AFFECTED_FULL_REASON" ]; then
+    log "affected: keeping the whole selection ($AFFECTED_FULL_REASON)"
+    SELECTION_DESC="${SELECTION_DESC};affected=full"
+    return 0
+  fi
+  for s in "${SCRIPTS[@]+"${SCRIPTS[@]}"}"; do
+    keep=0
+    for a in "${AFFECTED_SCRIPTS[@]+"${AFFECTED_SCRIPTS[@]}"}"; do
+      if [ "$a" = "$s" ]; then
+        keep=1
+        break
+      fi
+    done
+    [ "$keep" -eq 0 ] || kept+=("$s")
+  done
+  SCRIPTS=("${kept[@]+"${kept[@]}"}")
+  SELECTION_DESC="${SELECTION_DESC};affected:base=$BASE_REF"
 }
 
 write_json_artifact() {
@@ -2114,6 +2209,14 @@ while [ "$#" -gt 0 ]; do
     --changed)
       [ -z "$MODE" ] || die "only one selection mode is allowed"
       MODE=changed
+      shift
+      ;;
+    --affected)
+      AFFECTED=1
+      shift
+      ;;
+    --ci-scope)
+      CI_SCOPE=1
       shift
       ;;
     --base)
@@ -2270,6 +2373,16 @@ if [ "$CHECK_COVERAGE" -eq 1 ]; then
   exit $?
 fi
 
+if [ "$CI_SCOPE" -eq 1 ]; then
+  affected_resolve
+  if [ -n "$AFFECTED_FULL_REASON" ]; then
+    printf 'full\t%s\n' "$AFFECTED_FULL_REASON"
+  else
+    printf 'affected\t%s\n' "${#AFFECTED_SCRIPTS[@]}"
+  fi
+  exit 0
+fi
+
 if [ "${MODE:-}" = "aggregate" ]; then
   [ -n "$AGGREGATE_OUT" ] || die "--aggregate-json requires an output path"
   [ "${#SCRIPTS[@]}" -gt 0 ] || die "--aggregate-json requires at least one input timing JSON"
@@ -2342,7 +2455,9 @@ case "${MODE:-}" in
     ;;
 esac
 
+[ "$AFFECTED" -eq 0 ] || [ "$MODE" != changed ] || die "--affected cannot combine with --changed"
 apply_exclude_families
+apply_affected
 if [ "${#EXCLUDE_FAMILIES[@]}" -gt 0 ]; then
   SELECTION_DESC="${SELECTION_DESC};exclude-family=$(IFS=,; printf '%s' "${EXCLUDE_FAMILIES[*]}")"
 fi
