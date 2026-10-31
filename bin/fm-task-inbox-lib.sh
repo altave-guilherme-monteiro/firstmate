@@ -138,15 +138,38 @@ fm_task_inbox_lock_acquire() {  # <lock-path>
 
 # Write one record into the next sequence slot: temp-write, then atomic
 # rename. Prints the record path. Caller must hold .seq.lock.
+fm_steer_key_path() {  # <state-dir>
+  printf '%s/.steer-key' "$1"
+}
+
+fm_steer_key_ensure() {  # <state-dir>
+  local key
+  key=$(fm_steer_key_path "$1")
+  if [ ! -s "$key" ]; then
+    ( umask 077; head -c 32 /dev/urandom | od -An -tx1 | tr -d " \n" > "$key" ) || return 1
+  fi
+  chmod 600 "$key" 2>/dev/null
+  printf '%s' "$key"
+}
+
+fm_steer_sign() {  # <state-dir> <text>
+  local key
+  key=$(fm_steer_key_ensure "$1") || return 1
+  [ -s "$key" ] || return 1
+  printf '%s' "$2" | openssl dgst -sha256 -hmac "$(cat "$key")" 2>/dev/null | awk '{print $NF}'
+}
+
 _fm_task_inbox_write_record_locked() {  # <inbox-dir> <text> [delivery-mode]
-  local dir=$1 text=$2 delivery_mode=${3:-} seq tmp rec status=0
+  local dir=$1 text=$2 delivery_mode=${3:-} seq tmp rec status=0 sig=''
   seq=$(fm_task_inbox_next_seq "$dir")
   rec="$dir/$seq.msg"
+  sig=$(fm_steer_sign "${dir%/*}" "$text" 2>/dev/null || true)
   tmp=$(mktemp "$dir/.staging.XXXXXX") || return 1
   {
     printf 'schema=%s\n' "$FM_TASK_INBOX_SCHEMA"
     printf 'at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     [ "$delivery_mode" != fire-and-forget ] || printf 'delivery=fire-and-forget\n'
+    [ -z "$sig" ] || printf 'sig=%s\n' "$sig"
     printf -- '--\n'
     printf '%s' "$text"
   } > "$tmp" && mv "$tmp" "$rec" || status=1
