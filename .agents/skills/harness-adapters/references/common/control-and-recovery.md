@@ -14,6 +14,7 @@ Let the control plane verify postconditions.
 
 Inspect after spawn within the tool's readiness window.
 Select only its documented trust choice from the active Firstmate home, binding `FM_HOME` unless already correct, then inspect again under the router-owned completion postcondition.
+Before any Enter, read which option the capture shows as selected: a bare Enter accepts the highlighted option, and a negative default such as `No, exit` stops the agent before it starts; move to the affirmative option first, and relaunch an agent that a wrong Enter stopped before it began its instructions.
 No observed dialog proves only that launch.
 
 Each supported harness handles its folder-trust gate differently, and the tool reference owns the detail.
