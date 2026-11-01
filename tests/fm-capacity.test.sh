@@ -524,6 +524,49 @@ test_watcher_publishes_only_when_opted_in() {
   pass "the watcher publishes lane facts only for an opted-in home"
 }
 
+# add_slice_fake <fakebin> <memory-current>: a systemctl stub that reports
+# <memory-current> as the slice's MemoryCurrent.
+add_slice_fake() {
+  printf '#!/usr/bin/env bash\necho %s\n' "$2" > "$1/systemctl"
+  chmod +x "$1/systemctl"
+}
+
+test_resource_limits_slice_report_and_admit() {
+  local home fakebin out rc
+  home=$(make_home slice 1 0)
+  fakebin=$(make_probes "$TMP_ROOT/p-slice" 0.50 60 8 20971520)
+  printf 'memory_high=2G\nmemory_max=3G\n' > "$home/config/resource-limits"
+  add_slice_fake "$fakebin" 536870912
+  out=$(run_capacity_jq "$home" "$fakebin")
+  assert_contains "$out" ' slice=fm-main_' "the report must name the home slice"
+  assert_contains "$out" ' slice_free_mb=1536' "free memory is MemoryHigh minus use"
+  assert_contains "$out" 'Slice: fm-main_' "the summary must show the slice use"
+  out=$(run_capacity_jq "$home" "$fakebin" --admit); rc=$?
+  expect_code 0 "$rc" "admit with room in the slice"
+  add_slice_fake "$fakebin" 1610612736
+  out=$(run_capacity_jq "$home" "$fakebin" --admit); rc=$?
+  expect_code 75 "$rc" "admit with a full slice and no lane config"
+  assert_contains "$out" 'deferred: slice fm-main_' "a full slice must defer"
+  printf '4\n' > "$home/config/lane-capacity"
+  out=$(run_capacity_jq "$home" "$fakebin")
+  assert_contains "$out" 'capacity: free_lanes=0 reason=slice ' "a full slice closes lanes"
+  out=$(run_capacity_jq "$home" "$fakebin" --admit); rc=$?
+  expect_code 75 "$rc" "admit with a full slice and a lane config"
+  add_slice_fake "$fakebin" '[not set]'
+  out=$(run_capacity_jq "$home" "$fakebin" --admit); rc=$?
+  expect_code 0 "$rc" "an unused slice admits"
+  printf 'memory_high=much\n' > "$home/config/resource-limits"
+  out=$(run_capacity_jq "$home" "$fakebin" --admit); rc=$?
+  expect_code 1 "$rc" "admit with an invalid limits file"
+  out=$(run_capacity_jq "$home" "$fakebin"); rc=$?
+  expect_code 1 "$rc" "report with an invalid limits file"
+  assert_contains "$out" ' slice=invalid ' "an invalid limits file is reported as invalid"
+  rm -f "$home/config/resource-limits" "$home/config/lane-capacity"
+  out=$(run_capacity_jq "$home" "$fakebin")
+  assert_contains "$out" ' slice=none slice_free_mb=none' "no limits file reports no slice"
+  pass "the home slice is reported, closes lanes when full, and --admit defers on it"
+}
+
 test_no_target_prints_counts_only
 test_no_target_never_prints_constrained_line
 test_target_yields_open_lanes_and_full
@@ -540,6 +583,7 @@ test_limits_and_admit
 test_publish_document
 test_captain_and_quota
 test_watcher_publishes_only_when_opted_in
+test_resource_limits_slice_report_and_admit
 test_real_host_smoke
 
 echo '# all fm-capacity tests passed'

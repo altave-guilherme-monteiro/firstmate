@@ -21,6 +21,7 @@
 #   capacity: free_lanes=<N|unknown> reason=<reason> lanes=<N> target=<N|none|invalid>
 #     secondmates=<N> load1=<X|unknown> cores=<N|unknown>
 #     mem_free_pct=<N|unknown> disk_free_mb=<N|unknown>
+#     slice=<unit|none|invalid> slice_free_mb=<N|none|unknown>
 # (one physical line). A short human summary follows it. load1, cores,
 # mem_free_pct and disk_free_mb are always this host's own probes.
 #
@@ -46,6 +47,8 @@
 #   load      load1 is at or over max-load1
 #   reserve   a reserve-flag file exists
 #   battery   a fresh beat reports the machine on battery
+#   slice     the home slice of config/resource-limits has under the free
+#             memory a new agent needs (bin/fm-resource-limits-lib.sh)
 # Otherwise reason is ok when free_lanes > 0 and full when it is 0.
 # The human "Constrained" hold line is printed only when config/lane-capacity
 # exists; without it the report is counts and host figures only, with no
@@ -107,13 +110,20 @@
 # A malformed config is still published with cap.status invalid. It is
 # best-effort: every failure goes to stderr and it exits 0.
 #
+# slice and slice_free_mb report this home's slice from config/resource-limits
+# (docs/configuration.md "Resource limits"): none without the file, invalid
+# with a malformed one (named on stderr, exit 1), and the free memory under its
+# MemoryHigh, else MemoryMax, as systemd user reports its use.
+#
 # --admit exits 0 when config/lane-capacity is absent or the verdict admits,
-# and 75 with one `deferred:` line on stderr when it does not.
+# and 75 with one `deferred:` line on stderr when it does not. Without
+# config/lane-capacity it still exits 75 when the slice has no free memory.
 #
 # Environment: FM_HOME, FM_STATE_OVERRIDE, FM_CONFIG_OVERRIDE, and
 # FM_PROJECTS_OVERRIDE resolve the home exactly as the other bin/ scripts do.
 #
-# Exit status: 0 on a report, 1 on an invalid config/lane-capacity (report,
+# Exit status: 0 on a report, 1 on an invalid config/lane-capacity or
+# config/resource-limits (report,
 # --json, --admit), 2 on a usage error or --json without jq, 75 on an --admit
 # deferral.
 set -u
@@ -133,6 +143,9 @@ DISK_FREE_MIN_MB=5120
 LANE_FOOTPRINT_GB=1
 QUOTA_TIMEOUT=5
 BOOTS_KEPT=10
+
+# shellcheck source=bin/fm-resource-limits-lib.sh
+. "$SCRIPT_DIR/fm-resource-limits-lib.sh"
 
 mode=report
 case "${1:-}" in
@@ -165,7 +178,14 @@ file_mtime() {
 now=$(date +%s)
 
 case "$mode" in
-  admit|publish) [ -e "$LANE_CONFIG" ] || exit 0 ;;
+  admit)
+    if [ ! -e "$LANE_CONFIG" ]; then
+      slice_rc=0
+      fm_resource_limits_admit "$FM_HOME" "$CONFIG" || slice_rc=$?
+      case "$slice_rc" in 0|75) exit "$slice_rc" ;; *) exit 1 ;; esac
+    fi
+    ;;
+  publish) [ -e "$LANE_CONFIG" ] || exit 0 ;;
 esac
 if [ "$mode" = publish ]; then
   interval=${FM_LANE_CAPACITY_PUBLISH_INTERVAL:-30}
@@ -480,6 +500,27 @@ done <<EOF
 $reserve_flags
 EOF
 
+# --- slice ------------------------------------------------------------------
+slice=none
+slice_free_mb=none
+slice_used_mb=
+slice_limit_mb=
+slice_error=
+slice_rc=0
+fm_resource_limits_usage "$FM_HOME" "$CONFIG" || slice_rc=$?
+case "$slice_rc" in
+  0)
+    slice=$FM_RL_SLICE
+    case "$FM_RL_FREE_BYTES" in
+      none|unknown) slice_free_mb=$FM_RL_FREE_BYTES ;;
+      *) slice_free_mb=$((FM_RL_FREE_BYTES / 1048576)) ;;
+    esac
+    [ "$FM_RL_CURRENT_BYTES" = unknown ] || slice_used_mb=$((FM_RL_CURRENT_BYTES / 1048576))
+    [ "$FM_RL_LIMIT_BYTES" = none ] || slice_limit_mb=$((FM_RL_LIMIT_BYTES / 1048576))
+    ;;
+  2) slice=invalid slice_error=$FM_RL_ERROR ;;
+esac
+
 # --- verdict ----------------------------------------------------------------
 constraints=
 reasons=
@@ -523,6 +564,13 @@ if [ -n "$max_load1" ] && [ -n "$lim_load1" ] && ! num_lt "$lim_load1" "$max_loa
 fi
 [ "$reserve_flag" != present ] || add_constraint reserve "captain reserve: $reserve_label"
 [ "$on_battery" != true ] || add_constraint battery "on battery"
+case "$FM_RL_FREE_BYTES" in
+  none|unknown) ;;
+  *)
+    [ "$slice_rc" -ne 0 ] || [ "$FM_RL_FREE_BYTES" -ge "$FM_RESOURCE_LIMITS_MIN_FREE_BYTES" ] \
+      || add_constraint slice "slice: $slice has $slice_free_mb MB free under its memory limit"
+    ;;
+esac
 
 free_lanes=unknown
 admit=false
@@ -553,6 +601,10 @@ if [ "$mode" = admit ]; then
     echo "fm-capacity: $target_error" >&2
     exit 1
   fi
+  if [ -n "$slice_error" ]; then
+    echo "fm-capacity: $slice_error" >&2
+    exit 1
+  fi
   [ "$admit" = true ] && exit 0
   echo "deferred: lane capacity of this home ($LANE_CONFIG) does not admit another lane: $(printf '%s' "$reasons" | paste -sd ';' - | sed 's/;/; /g')" >&2
   exit 75
@@ -560,8 +612,8 @@ fi
 
 # --- report -----------------------------------------------------------------
 if [ "$mode" = report ]; then
-  printf 'capacity: free_lanes=%s reason=%s lanes=%s target=%s secondmates=%s load1=%s cores=%s mem_free_pct=%s disk_free_mb=%s\n' \
-    "$free_lanes" "$reason" "$lanes" "$target" "$secondmates" "$load1" "$cores" "$mem_free_pct" "$disk_free_mb"
+  printf 'capacity: free_lanes=%s reason=%s lanes=%s target=%s secondmates=%s load1=%s cores=%s mem_free_pct=%s disk_free_mb=%s slice=%s slice_free_mb=%s\n' \
+    "$free_lanes" "$reason" "$lanes" "$target" "$secondmates" "$load1" "$cores" "$mem_free_pct" "$disk_free_mb" "$slice" "$slice_free_mb"
 
   case "$target" in
     none) echo "Lanes: $lanes running, no target set (config/lane-capacity absent)." ;;
@@ -576,10 +628,15 @@ if [ "$mode" = report ]; then
     why_text=$(printf '%s' "$why" | paste -sd ';' - | sed 's/;/; /g')
     echo "Pressure: $level from $basis${why_text:+ ($why_text)}."
   fi
+  [ "$slice_rc" -ne 0 ] || echo "Slice: $slice, memory ${slice_used_mb:-unknown} MB used of ${slice_limit_mb:-no} MB limit, $slice_free_mb MB free."
   [ "$target" = none ] || [ -z "$constraints" ] || echo "Constrained: $constraints - hold new dispatch until it clears."
 
   if [ -n "$target_error" ]; then
     echo "fm-capacity: $target_error" >&2
+    exit 1
+  fi
+  if [ -n "$slice_error" ]; then
+    echo "fm-capacity: $slice_error" >&2
     exit 1
   fi
   exit 0

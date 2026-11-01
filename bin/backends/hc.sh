@@ -50,6 +50,8 @@
 . "$FM_BACKEND_LIB_DIR/fm-composer-lib.sh"
 # shellcheck source=bin/fm-agent-process-lib.sh
 . "$FM_BACKEND_LIB_DIR/fm-agent-process-lib.sh"
+# shellcheck source=bin/fm-resource-limits-lib.sh
+. "$FM_BACKEND_LIB_DIR/fm-resource-limits-lib.sh"
 
 # The hc session a new task is created on: the caller's HC_SESSION, else hc's
 # own default session name.
@@ -164,9 +166,12 @@ fm_backend_hc_container_ensure() {
 # <window-label>, refusing a live duplicate in this home. Prints the address.
 # --no-parent and --outlive-parent keep the terminal independent of whichever
 # hc terminal firstmate itself runs in; --no-notify keeps hc from typing notes
-# into any parent.
-fm_backend_hc_create_task() {  # <session> <window-label> <cwd>
-  local session=$1 label=$2 cwd=$3 home scoped dup out address
+# into any parent. With [limits-home] whose config/resource-limits exists, the
+# shell runs in a systemd user scope under that home's slice
+# (bin/fm-resource-limits-lib.sh); without systemd user it launches unchanged.
+fm_backend_hc_create_task() {  # <session> <window-label> <cwd> [limits-home] [limits-config-dir]
+  local session=$1 label=$2 cwd=$3 limits_home=${4:-} limits_config=${5:-} home scoped dup out address rc
+  local program=()
   home=$(fm_backend_hometag)
   scoped=$(fm_backend_hc_scoped_label "$label")
   dup=$(fm_backend_hc_cli "$session" ls --json --label "firstmate.task=$label" --label "firstmate.home=$home" 2>/dev/null) \
@@ -175,10 +180,16 @@ fm_backend_hc_create_task() {  # <session> <window-label> <cwd>
     echo "error: hc terminal for $label already exists in session '$session'" >&2
     return 1
   fi
+  if [ -n "$limits_home" ]; then
+    rc=0
+    fm_resource_limits_prepare "$limits_home" "$limits_config" || rc=$?
+    [ "$rc" -ne 2 ] || return 1
+    [ "$rc" -ne 0 ] || program=(-- systemd-run --user --scope --quiet --collect "--slice=$FM_RL_SLICE" -- "${SHELL:-/bin/sh}")
+  fi
   out=$(fm_backend_hc_cli "$session" run --bg --json --no-parent --outlive-parent --no-notify \
     --cwd "$cwd" \
     --label "firstmate.task=$label" --label "firstmate.home=$home" \
-    --label "herdr.space=${FM_HC_SPACE:-fm-$home}" --label "herdr.tab=$scoped" 2>&1) \
+    --label "herdr.space=${FM_HC_SPACE:-fm-$home}" --label "herdr.tab=$scoped" ${program[@]+"${program[@]}"} 2>&1) \
     || { echo "error: hc run failed for $label: $out" >&2; return 1; }
   address=$(printf '%s' "$out" | jq -r '.address // empty' 2>/dev/null)
   fm_backend_hc_address_valid "$address" || { echo "error: hc run did not return a terminal address for $label (got: $out)" >&2; return 1; }

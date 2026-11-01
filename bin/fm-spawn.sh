@@ -243,6 +243,10 @@
 #   every place held prints one `deferred:` line and exits 75 before any brief
 #   render, endpoint, worktree, record, or backlog move exists, so the task stays
 #   exactly as queued as it was; an unreadable declaration refuses with exit 1.
+#   Resource limits: on the hc backend a fresh spawn whose home slice has no
+#   free memory (bin/fm-resource-limits-lib.sh; the limits home is the lead home
+#   for a secondmate, else this home) prints `deferred:` and exits 75 before any
+#   endpoint exists; an invalid config/resource-limits refuses with exit 1.
 #   A batch reports such a pair as `batch: DEFERRED` and exits 75 when nothing
 #   else failed. A relaunch and a --secondmate spawn are never counted against
 #   capacity.
@@ -964,6 +968,8 @@ fm_backlog_directory_present "$STATE" "state directory" || {
 . "$SCRIPT_DIR/fm-timeout-lib.sh"
 # shellcheck source=bin/fm-project-capacity-lib.sh
 . "$SCRIPT_DIR/fm-project-capacity-lib.sh"
+# shellcheck source=bin/fm-resource-limits-lib.sh
+. "$SCRIPT_DIR/fm-resource-limits-lib.sh"
 # shellcheck source=bin/fm-worker-account-lib.sh
 . "$SCRIPT_DIR/fm-worker-account-lib.sh"
 # shellcheck source=bin/fm-omp-profile-lib.sh
@@ -4081,6 +4087,21 @@ if [ -n "$SPAWN_PROJECT_CAPACITY" ]; then
     exit "$FM_PROJECT_CAPACITY_DEFER_EXIT"
   fi
 fi
+SPAWN_LIMITS_HOME=$FM_HOME
+SPAWN_LIMITS_CONFIG=$CONFIG
+if [ "$KIND" = secondmate ]; then
+  SPAWN_LIMITS_HOME=$PROJ_ABS
+  SPAWN_LIMITS_CONFIG=$PROJ_ABS/config
+fi
+if [ "$BACKEND" = hc ] && [ "$RELAUNCH" -eq 0 ]; then
+  SPAWN_LIMITS_RC=0
+  fm_resource_limits_admit "$SPAWN_LIMITS_HOME" "$SPAWN_LIMITS_CONFIG" || SPAWN_LIMITS_RC=$?
+  case "$SPAWN_LIMITS_RC" in
+    0) ;;
+    75) echo "deferred: task $ID was not launched and its backlog item stays queued - dispatch it again once the slice has free memory" >&2; exit 75 ;;
+    *) exit 1 ;;
+  esac
+fi
 [ -f "$BRIEF" ] || {
   echo "error: task $ID has no brief at inaccessible data path $BRIEF" >&2
   exit 1
@@ -5137,7 +5158,7 @@ EOF
     ;;
   hc)
     HC_SES=$(fm_backend_hc_container_ensure) || exit 1
-    HC_TERMINAL=$(fm_backend_hc_create_task "$HC_SES" "$W" "$PROJ_ABS") || exit 1
+    HC_TERMINAL=$(fm_backend_hc_create_task "$HC_SES" "$W" "$PROJ_ABS" "$SPAWN_LIMITS_HOME" "$SPAWN_LIMITS_CONFIG") || exit 1
     T="$HC_SES:$HC_TERMINAL"
     ;;
   orca)
