@@ -142,6 +142,7 @@ Upstream `bin/fm-brief.sh` appends the file to each change and investigation bri
 | NABORS version skill | `.agents/skills/nabors-programme/` |
 | User preference files change only by explicit instruction | `AGENTS.md`, `.agents/skills/stow/` |
 | Brief additions | `docs/fork/brief-include.md` |
+| Affected-only pull request CI (`--affected`, `--ci-scope`) | `bin/fm-test-run.sh`, `.github/workflows/ci.yml`, `docs/fm-test-portable-shards.md` |
 | Leads on the hc backend | `bin/fm-spawn.sh`, `docs/hc-backend.md`, `docs/configuration.md` |
 | Signed steering records, opt-in with `config/steer-signing` | `bin/fm-task-inbox-lib.sh`, `bin/fm-verify-steer.sh`, `bin/fm-brief.sh`, `docs/configuration.md` |
 
