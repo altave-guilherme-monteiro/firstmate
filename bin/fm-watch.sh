@@ -118,6 +118,11 @@
 #                          delivery-attempt, busy-deferral, and unavailable-endpoint policy
 #   check: <script>: <out> authenticated check output, always actionable
 #   check: open decision overdue: <task> key=<key> age=<seconds>s
+#   check: decision-ttl <home> <task> question=<id> quadrant=<n>
+#                          a typed hold question passed its TTL (see
+#                          bin/fm-captain-hold.sh due); decision_ttl_tick polls
+#                          at most every FM_DECISION_TTL_POLL_SECS and raises each
+#                          (task, question, bucket) once
 #                          opt-in config/open-decision-reminders record-age
 #                          backstop, independent of pane and branch state;
 #                          open_decision_reminder_tick owns its bounded repeats
@@ -2652,6 +2657,36 @@ EOF
   fi
 }
 
+DECISION_TTL_REMINDER=
+DECISION_TTL_POLL_SECS=${FM_DECISION_TTL_POLL_SECS:-300}
+decision_ttl_tick() {
+  local now=${1:-} marker="$STATE/.decision-ttl-polled" ledger="$STATE/.decision-ttl-seen"
+  local last=0 rows task question quadrant ttl bucket id
+  DECISION_TTL_REMINDER=
+  command -v tasks-axi >/dev/null 2>&1 || return 0
+  [ -n "$now" ] || fm_epoch_seconds_to now
+  if [ -f "$marker" ] && [ ! -L "$marker" ]; then
+    last=$(cat "$marker" 2>/dev/null || echo 0)
+  fi
+  case "$last" in ''|*[!0-9]*) last=0 ;; esac
+  [ $((now - last)) -ge "$DECISION_TTL_POLL_SECS" ] || return 0
+  printf '%s\n' "$now" > "$marker" || return 0
+  rows=$(FM_HOME="$FM_HOME" "$SCRIPT_DIR/fm-captain-hold.sh" due 2>/dev/null) || return 0
+  while IFS=$'\t' read -r task question quadrant ttl bucket; do
+    [ -n "$task" ] || continue
+    id="$task:$question:$bucket"
+    if [ -f "$ledger" ] && grep -qxF -- "$id" "$ledger"; then
+      continue
+    fi
+    printf '%s\n' "$id" >> "$ledger" || return 0
+    DECISION_TTL_REMINDER="check: decision-ttl $FM_HOME $task question=$question quadrant=$quadrant"
+    fm_wake_append check "decision-ttl:$id" "$DECISION_TTL_REMINDER" || DECISION_TTL_REMINDER=
+    return 0
+  done <<EOF
+$rows
+EOF
+}
+
 # The identity a re-surface throttle is bound to: the task's whole status-log
 # signature. Any new status event - a replacement wait, a fresh delivery, a
 # blocker - changes it and so starts its own window instead of inheriting the
@@ -3712,6 +3747,9 @@ while :; do
     exit 1
   }
   [ -z "$OPEN_DECISION_REMINDER" ] || wake "$OPEN_DECISION_REMINDER"
+
+  decision_ttl_tick
+  [ -z "$DECISION_TTL_REMINDER" ] || wake "$DECISION_TTL_REMINDER"
 
   # Endpoint liveness runs before queue observation: a positively dead or
   # missing secondmate endpoint is relaunched here on a bounded cadence, which

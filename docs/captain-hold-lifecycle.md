@@ -17,6 +17,7 @@ This document records the deterministic mechanism, structured surfaces, compatib
 | Why did a decision card disappear from the board? | [Card hygiene](#card-hygiene-a-landed-subject-is-not-a-live-call) |
 | Where does a hold appear in snapshots and Bearings? | [Structured read surfaces](#structured-read-surfaces) |
 | What does a `RECORD DIVERGENCE` section mean? | [Record divergence](#record-divergence) |
+| How is a question triaged, applied automatically, or vetoed? | [Typed holds and triage](#typed-holds-and-triage) |
 | How do rows from older installs still work? | [Compatibility with pre-collapse installs](#compatibility-with-pre-collapse-installs) |
 | Which tests prove this, and how is the record refreshed? | [Verification record](#verification-record) |
 
@@ -43,6 +44,7 @@ It never reads report bodies, review artifacts, terminal output, or chat.
 | `reconcile-requests` | Internal intake that records a reconcile request from a board selection. | [Reconcile](#reconcile-re-check-reality-never-a-blind-close) |
 | `reconcile close`, `reconcile note`, `reconcile list` | Retire or list pending reconcile requests. | [Verifying and retiring a request](#verifying-and-retiring-a-request) |
 | `diverged` | Read-only report of a call whose two records disagree. | [Record divergence](#record-divergence) |
+| `hold --spec`, `adopt`, `list`, `due`, `decide`, `veto` | Typed holds, triage, and the read API of the Decisions panel. | [Typed holds and triage](#typed-holds-and-triage) |
 
 ### Creating a hold (`hold`)
 
@@ -358,6 +360,31 @@ That follow-up must query landedness and route reconciliation in the authoritati
 Until then, an absent main-home task passes through this hygiene check unchanged.
 Its Reconcile selection remains announced but cannot create a main-home request, because the main intake refuses an absent task.
 For a main-home call, the reconcile option is the recovery path for whatever still slips through.
+
+## Typed holds and triage
+
+[`docs/decisions/0001-decisions-and-work-panels.md`](decisions/0001-decisions-and-work-panels.md) owns the design, the quadrant table, and the never-auto classes.
+This section records the mechanism that implements it.
+`bin/fm-hold-spec-lib.sh` is the one owner of the spec schema, the quadrant computation, and every state change of a question.
+
+- `hold --spec` validates the spec before any write, so a refused spec creates no task.
+  It stores one `Hold spec (fm-hold-v2):` line in the task body header, beside the hold-set stamp and the origin line.
+  Each task named in a question's `blocks` gets a tasks-axi `block --by` link to the hold.
+- A question is `open`, `applied` (an automatic decision with a veto time), or `answered`.
+  `decide --auto` and `decide --option` change one question and rewrite the spec line.
+  When no question stays open, the task closes through the ordinary `answer` path, with `--release` when the row is work rather than a captain row.
+- `veto` reopens an applied question as quadrant 2 while the task is open.
+  After the task closed, it holds a new task named `<task>-veto-<question>`, because a closed task can not reopen.
+  It steers the origin worker through `bin/fm-send.sh` when that worker has a local record.
+- `answer --release` also closes a row of kind `captain`, so a released call leaves Queued.
+  A replay of the same release stays a no-op.
+- `due` is stateless: each row carries a bucket that counts elapsed periods, and the watcher raises one `check: decision-ttl` wake per task, question, and bucket (`decision_ttl_tick` in `bin/fm-watch.sh`).
+- `list --json` is the only read API of the panel.
+  It reads held tasks live, never a lead summary.
+  Drift rows are `answered_in_status`, `answered_by_events` (spec field `watch_key`), `unfiled`, `ttl_due`, `stale_summary`, and `unreadable_home`.
+- `adopt` files an open `needs-decision` line as a question of kind `action` with `undo_cost` of `days`, so an adopted call is never applied automatically.
+
+`tests/fm-captain-hold-decisions.test.sh` and `tests/fm-watch-decision-ttl.test.sh` pin this behavior.
 
 ## Structured read surfaces
 

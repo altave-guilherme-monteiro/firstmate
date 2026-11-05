@@ -907,6 +907,13 @@ task_json_lines() {
         },
         secondmate_projects:($projects | if . == "" then [] else split(",") | map(gsub("^[[:space:]]+|[[:space:]]+$"; "")) | map(select(. != "")) end),
         current_state:($current_state + {observed_at:$observed_at,freshness:"fresh"}),
+        lifecycle:(
+          ($spawn_gen | (capture("^s(?<epoch>[0-9]+)(\\.|$)")? // null) | if . == null then null else (.epoch | tonumber) end) as $spawned
+          | ($observed_at | try fromdateiso8601 catch null) as $now
+          | {stopped:($kind != "secondmate" and $current_state.state == "unknown"
+                       and (($current_state.detail // "") | startswith("backend target gone"))),
+             spawned_epoch:$spawned,
+             elapsed_seconds:(if $spawned != null and $now != null then ($now - $spawned) else null end)}),
         endpoint:{target:($target | if . == "" then null else . end),exists:$endpoint_exists,agent_alive:$agent_alive,
           status:(if $endpoint_exists == false then "absent"
                   elif $agent_alive == "alive" or $agent_alive == "dead" then $agent_alive

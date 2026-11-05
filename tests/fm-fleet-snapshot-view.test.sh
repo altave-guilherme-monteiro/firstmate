@@ -1152,7 +1152,31 @@ EOF
   pass "home-summary excludes kind=secondmate from unowned_current and terminal_in_flight"
 }
 
+test_stopped_task_reports_its_elapsed_time_since_spawn() {
+  local home fakebin out
+  home=$(make_home stopped-task)
+  mkdir -p "$home/projects/gone-ship"
+  fm_write_meta "$home/state/gone-ship.meta" \
+    "window=firstmate:fm-gone-ship" \
+    "worktree=$home/projects/gone-ship" \
+    "project=alpha" \
+    "harness=claude" \
+    "kind=ship" \
+    "mode=ship" \
+    "spawn_gen=s1000000100.123.456"
+  fakebin=$(fm_fakebin "$home")
+  printf '#!/usr/bin/env bash\nexit 0\n' > "$fakebin/tmux"
+  chmod +x "$fakebin/tmux"
+  out=$(PATH="$fakebin:$PATH" FM_HOME="$home" FM_SNAPSHOT_NOW=2001-09-09T01:55:00Z "$SNAPSHOT" --json)
+  printf '%s' "$out" | jq -e '
+    (.tasks[] | select(.id == "gone-ship") | .lifecycle)
+    | .stopped == true and .spawned_epoch == 1000000100 and .elapsed_seconds == 400
+  ' >/dev/null || fail "a task with no endpoint must be stopped with its elapsed time: $(printf '%s' "$out" | jq -c '.tasks[].lifecycle')"
+  pass "snapshot flags a task with no endpoint as stopped with its elapsed time"
+}
+
 fm_test_run \
+  test_stopped_task_reports_its_elapsed_time_since_spawn \
   test_empty_fleet_json \
   test_fixture_snapshot_json \
   test_home_summary_excludes_secondmate_from_child_inventory \
