@@ -65,9 +65,12 @@
 #     against current_state; hints.pending_decision and hints.blocked_event are
 #     booleans derived from that set.
 #     lifecycle.stop_cause says why a stopped task has no terminal, from its last
-#     status event and open decisions: waiting_on_user (needs-decision, blocked,
-#     or an open decision), finished (a done event or a recorded PR), or
-#     silent_exit (no terminal event after the last working line). It is null
+#     status event and open decisions: paused (a paused event),
+#     with_orchestrator (needs-decision, blocked, or an open status decision,
+#     all of which need the Orchestrator, never the user), finished (a done
+#     event or a recorded PR), or silent_exit (no terminal event after the last
+#     working line). Only an open typed captain hold waits on the user; the
+#     snapshot reads that from the hold list, not from status lines. It is null
 #     for a task that is not stopped.
 #     endpoint.exists is the cheap local backend endpoint-presence read.
 #     endpoint.agent_alive is populated for local secondmates only, where it is
@@ -920,7 +923,8 @@ task_json_lines() {
           | ($status_log.last_event.state // "") as $last
           | {stopped:$stopped,
              stop_cause:(if ($stopped | not) then null
-                         elif ($last | IN("needs-decision","blocked")) or $pending_decision or $blocked_event then "waiting_on_user"
+                         elif $last == "paused" then "paused"
+                         elif ($last | IN("needs-decision","blocked")) or $pending_decision or $blocked_event then "with_orchestrator"
                          elif $last == "done" or $pr != "" then "finished"
                          else "silent_exit" end),
              spawned_epoch:$spawned,

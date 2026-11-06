@@ -1181,7 +1181,7 @@ test_stopped_task_cause_follows_its_last_status_event() {
   fakebin=$(fm_fakebin "$home")
   printf '#!/usr/bin/env bash\nexit 0\n' > "$fakebin/tmux"
   chmod +x "$fakebin/tmux"
-  for id in ended-ship asking-ship silent-ship; do
+  for id in ended-ship asking-ship silent-ship paused-ship; do
     mkdir -p "$home/projects/$id"
     fm_write_meta "$home/state/$id.meta" \
       "window=firstmate:fm-$id" \
@@ -1195,8 +1195,9 @@ test_stopped_task_cause_follows_its_last_status_event() {
   printf 'working [at=1000000200]: building\ndone [at=1000000300]: ready in branch x\n' > "$home/state/ended-ship.status"
   printf 'working [at=1000000200]: building\nneeds-decision [at=1000000300] [key=ask-1]: merge or wait\n' > "$home/state/asking-ship.status"
   printf 'working [at=1000000200]: building\n' > "$home/state/silent-ship.status"
+  printf 'working [at=1000000200]: building\npaused [at=1000000300]: waiting for a build\n' > "$home/state/paused-ship.status"
   out=$(PATH="$fakebin:$PATH" FM_HOME="$home" FM_SNAPSHOT_NOW=2001-09-09T01:55:00Z "$SNAPSHOT" --json)
-  for line in ended-ship=finished asking-ship=waiting_on_user silent-ship=silent_exit; do
+  for line in ended-ship=finished asking-ship=with_orchestrator silent-ship=silent_exit paused-ship=paused; do
     printf '%s' "$out" | jq -e --arg id "${line%%=*}" --arg cause "${line##*=}" '
       (.tasks[] | select(.id == $id) | .lifecycle) | .stopped == true and .stop_cause == $cause
     ' >/dev/null || fail "stop_cause of ${line%%=*} must be ${line##*=}: $(printf '%s' "$out" | jq -c '.tasks[] | {id, lifecycle}')"
