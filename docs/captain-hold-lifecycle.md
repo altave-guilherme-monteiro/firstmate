@@ -370,6 +370,9 @@ This section records the mechanism that implements it.
 - `hold --spec` validates the spec before any write, so a refused spec creates no task.
   It stores one `Hold spec (fm-hold-v2):` line in the task body header, beside the hold-set stamp and the origin line.
   Each task named in a question's `blocks` gets a tasks-axi `block --by` link to the hold.
+- A worker or lead that waits on the user for a merge, push, credential, discard, or answer files a typed hold with `hold --spec` through its lead or the main home.
+  The Decisions panel reads only held tasks, so a `needs-decision` status line alone never reaches it.
+  `adopt` turns such a line into a typed hold when the worker could not file one itself.
 - A question is `open`, `applied` (an automatic decision with a veto time), or `answered`.
   `decide --auto` and `decide --option` change one question and rewrite the spec line.
   When no question stays open, the task closes through the ordinary `answer` path, with `--release` when the row is work rather than a captain row.
