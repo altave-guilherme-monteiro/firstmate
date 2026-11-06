@@ -19,6 +19,7 @@ Only real user calls wait for the user.
 | Typed hold spec | `hold --spec <file>` | The spec is a JSON file with kind, questions, options, one recommendation per question, links, and triage fields. The script stores it as one `Hold spec (fm-hold-v2):` line in the task body. A topic list or a missing recommendation for a quadrant 3 or 4 question is refused. |
 | Adopt | `adopt <status-file> <key>` | Turns an open `needs-decision` status line into a held task. It closes the key with `captain-held [key=...]`. A line with no parsable question stays unfiled. |
 | Read API | `list --json [--all-homes] [--decided-since <time>]` | Prints typed decisions with the computed quadrant, the due time, and drift rows. The panel renders this JSON only. |
+| Panel text | `context`, `details` per question | `context` is one line that the panel shows under the options. `details` holds `text` (paragraphs), `table` (rows, the first row is the header), and `links` (label and URL pairs). The panel shows `details` in a section that opens on request. `list --json` returns both. |
 | Triage fields | `class`, `undo_cost`, `blocks`, `deadline` per question | The script computes `quadrant` and `ttl_at`. Only an Orchestrator override with a reason changes the quadrant. |
 | TTL | `due [--json]` and the watcher check `decision-ttl` | Prints each question whose `ttl_at` has passed. The watcher raises `check: decision-ttl <home> <task>`. |
 | Auto decision | `decide <task> <question> --auto` | Records the recommendation with mode `auto`, a veto time, and the rule. It refuses a never-auto class. It closes the task when no question stays open. |
@@ -54,7 +55,8 @@ These questions are always important, so they can not reach quadrant 3 or 4.
 ## Panel layouts
 
 Decisions panel: groups Now, This week, Applied (you can veto), and Decided for you.
-Each user call shows the question, its options with the recommendation first, an Accept button, and the age.
+Each user call shows the question, its options with the recommendation first, the context line, an Accept button, an optional Details section, and the age.
+The panel renders the approved preview `data/decisions-panel-v2/preview.html` exactly: same fonts, sizes, colors, and animations.
 Quadrant 1 items raise a Herdr toast and a `notify-send` message at hold time and every 4 hours.
 
 Work panel: one panel with these groups in order.

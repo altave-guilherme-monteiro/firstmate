@@ -74,6 +74,8 @@
 # `adopt <status-file> <key>` turns an open `needs-decision` status line into a
 # held task named by the key and closes the key with `captain-held`. A line that
 # does not parse as one question stays unfiled: it prints `unfiled:` and exits 3.
+# A question may also carry `context` (one line) and `details` (text, table,
+# links) for the panel; the spec library header owns their shape.
 # `list --json [--all-homes] [--decided-since <time>]` prints every open
 # question with its group (now, this_week, applied, decided_for_you,
 # orchestrator_pending) plus drift rows (answered in status, answered by events,
@@ -2395,6 +2397,7 @@ task_items_json() {
        | {home:$home, task:$task, title:$title, held:($held == "yes"), legacy:false,
           kind:$spec.kind, origin:$spec.origin, issue:$spec.issue, links:$spec.links, watch_key:$spec.watch_key,
           question_id:.id, text:.text, options:.options, recommendation:.recommendation,
+          context:(.context // null), details:(.details // null),
           class:.class, undo_cost:.undo_cost, blocks:.blocks, deadline:.deadline,
           quadrant:.quadrant, override_reason:(if .quadrant_override then .reason else null end),
           status:.status, mode:(.mode // null), decision:(.decision // null), rule:(.rule // null),

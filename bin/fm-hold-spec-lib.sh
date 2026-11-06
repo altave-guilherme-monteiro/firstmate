@@ -16,7 +16,13 @@
 #               marks the call as answered by events
 #   links       optional list of URLs
 #   questions   non-empty list of {id, text, options, recommendation, class,
-#               undo_cost, blocks, deadline, quadrant_override, reason}
+#               undo_cost, blocks, deadline, quadrant_override, reason,
+#               context, details}
+# A question's context is one line of at most 300 characters that the panel
+# shows under the options. A question's details is an object of three optional
+# parts: text (list of paragraphs), table (list of rows, the first row is the
+# header, every row a list of strings), and links (list of [label, url] pairs).
+# The panel shows details in a section that opens on request.
 # A question's class is none, merge, delete, credential, outward, or money.
 # Its undo_cost is minutes, hours, days, or irreversible. A class other than
 # none, and an undo_cost of irreversible, make it a never-auto question.
@@ -76,6 +82,12 @@ def period($q):
 def ttl($created; $q): (($created | fromdateiso8601) + period($q)) | todateiso8601;
 def slug: type == "string" and test("^[A-Za-z0-9._-]+$");
 def refuse($m): error($m);
+def string_list: type == "array" and all(.[]; type == "string");
+def valid_details:
+  type == "object"
+  and ((.text // []) | string_list)
+  and ((.table // []) | type == "array" and all(.[]; string_list))
+  and ((.links // []) | type == "array" and all(.[]; type == "array" and length == 2 and string_list));
 def validate_question($kind):
   (if (.id | slug) then . else refuse("question id must be a slug") end)
   | (if (.text | type) == "string" and (.text | length) > 0 and (.text | length) <= max_text and (.text | test("[\n\r]") | not)
@@ -93,6 +105,10 @@ def validate_question($kind):
   | . as $question
   | (if (.recommendation // null) == null or (($question.options // []) | map(.id) | index($question.recommendation)) != null
      then . else refuse("question \(.id): recommendation must name one option id") end)
+  | (if (.context // null) == null or ((.context | type) == "string" and (.context | length) <= max_text and (.context | test("[\n\r]") | not))
+     then . else refuse("question \(.id): context must be one line of at most \(max_text) characters") end)
+  | (if (.details // null) == null or (.details | valid_details)
+     then . else refuse("question \(.id): details must hold text as a list of strings, table as a list of string rows, and links as [label, url] pairs") end)
   | (if (.deadline // null) == null or ((.deadline | type) == "string" and (.deadline | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$")))
      then . else refuse("question \(.id): deadline must be a UTC YYYY-MM-DDTHH:MM:SSZ time") end)
   | (if ((.blocks // []) | type) == "array" and all((.blocks // [])[]; slug)
@@ -102,6 +118,8 @@ def validate_question($kind):
      then . else refuse("question \(.id): quadrant_override needs a value from 1 to 4 and a reason") end);
 def normalize_question($now; $created):
   .options = (.options // [])
+  | .context = (.context // null)
+  | .details = (.details // null)
   | .recommendation = (.recommendation // null)
   | .blocks = (.blocks // [])
   | .deadline = (.deadline // null)

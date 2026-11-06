@@ -266,10 +266,30 @@ test_release_of_a_captain_row_removes_it_from_queued() {
   pass "release closes a captain row and keeps a work row queued"
 }
 
+test_hold_spec_keeps_context_and_details_and_refuses_bad_types() {
+  local home spec out
+  home=$(make_home details)
+  spec="$home/rich.json"
+  printf '%s' '{"kind":"question","questions":[{"id":"q","text":"Merge the migration?","options":[{"id":"a","label":"Merge"},{"id":"b","label":"Wait"}],"recommendation":"a","class":"merge","undo_cost":"hours","context":"Blocks the redo.","details":{"text":["One.","Two."],"table":[["Rig","Count"],["X43","116"]],"links":[["PR 1","https://example.test/pr/1"]]}}]}' > "$spec"
+  captain "$home" "$T0" hold rich-call --spec "$spec" --repo sample >/dev/null || fail "a spec with context and details was refused"
+  out=$(items_of "$home" "$T0")
+  assert_eq "$(printf '%s' "$out" | jq -r '.[0].context')" "Blocks the redo." "context in list --json"
+  assert_eq "$(printf '%s' "$out" | jq -c '.[0].details.table')" '[["Rig","Count"],["X43","116"]]' "details table in list --json"
+  assert_eq "$(printf '%s' "$out" | jq -c '.[0].details.links')" '[["PR 1","https://example.test/pr/1"]]' "details links in list --json"
+  printf '%s' '{"kind":"question","questions":[{"id":"q","text":"Merge it?","options":[{"id":"a","label":"A"},{"id":"b","label":"B"}],"class":"none","undo_cost":"days","context":"line one\nline two"}]}' > "$spec"
+  captain "$home" "$T0" hold bad-context --spec "$spec" --repo sample >/dev/null 2>"$home/err" && fail "a multi-line context was accepted"
+  grep -q 'context must be one line' "$home/err" || fail "the refusal does not name the context"
+  printf '%s' '{"kind":"question","questions":[{"id":"q","text":"Merge it?","options":[{"id":"a","label":"A"},{"id":"b","label":"B"}],"class":"none","undo_cost":"days","details":{"table":[["a",1]]}}]}' > "$spec"
+  captain "$home" "$T0" hold bad-details --spec "$spec" --repo sample >/dev/null 2>"$home/err" && fail "a non-string table cell was accepted"
+  grep -q 'details must hold' "$home/err" || fail "the refusal does not name the details"
+  pass "hold --spec keeps context and details and refuses wrong types"
+}
+
 fm_test_run \
   test_hold_spec_computes_quadrants_and_stores_one_record \
   test_hold_spec_links_blocked_tasks_to_the_hold \
   test_hold_spec_refuses_topic_lists_and_unsafe_quadrants \
+  test_hold_spec_keeps_context_and_details_and_refuses_bad_types \
   test_due_lists_only_questions_past_their_ttl \
   test_decide_auto_applies_cheap_questions_and_refuses_never_auto \
   test_user_answers_close_the_task_with_one_record \
