@@ -2107,6 +2107,17 @@ teardown_note_dirty_return() {
   printf '%s\n' "$residue" | sed 's/^/  /' >&2
 }
 
+print_discard_hold_hint() {
+  local spec spec_file
+  spec_file="\${TMPDIR:-/tmp}/$ID-discard.json"
+  spec=$(jq -cn --arg id "$ID" '{kind:"question", origin:$id, questions:[{id:"discard", text:("Discard the unlanded work of " + $id + "?"), options:[{id:"keep", label:"Keep it"}, {id:"discard", label:"Discard it"}], recommendation:"keep", class:"delete", undo_cost:"irreversible"}]}')
+  {
+    echo "To ask the captain to discard this work, file a typed hold, then wait for the answer:"
+    printf "  printf '%%s' '%s' > \"%s\" && FM_HOME=%q %q/fm-captain-hold.sh hold %s-discard --spec \"%s\" --origin %s\n" \
+      "$spec" "$spec_file" "$FM_HOME" "$SCRIPT_DIR" "$ID" "$spec_file" "$ID"
+  } >&2
+}
+
 validate_worktree_teardown_safety() {
   local dirty_raw dirty unpushed_raw unpushed DEFAULT unmerged_raw unmerged branch
   [ -d "$WT" ] || return 0
@@ -2151,12 +2162,14 @@ validate_worktree_teardown_safety() {
       [ -n "$dirty" ] && report_worktree_dirt "$dirty"
       [ -n "$unmerged" ] && printf 'commits not yet on %s:\n%s\n' "$DEFAULT" "$unmerged" >&2
       echo "Merge the branch into local $DEFAULT first (bin/fm-merge-local.sh after the captain approves), or push to a fork/remote, or get the captain's explicit OK to discard, then --force." >&2
+      print_discard_hold_hint
       return 1
     fi
   elif [ -n "$dirty" ]; then
     echo "REFUSED: worktree $WT has uncommitted changes." >&2
     report_worktree_dirt "$dirty"
     echo "Commit them (or get the captain's explicit OK to discard, then --force)." >&2
+    print_discard_hold_hint
     return 1
   elif [ -n "$unpushed" ]; then
     branch=${TEARDOWN_WORKTREE_BRANCH_FOR_SAFETY:-}
@@ -2173,6 +2186,7 @@ validate_worktree_teardown_safety() {
       fi
       printf 'unpushed commits:\n%s\n' "$unpushed" >&2
       echo "Push the branch, land its PR, or get the captain's explicit OK to discard, then --force." >&2
+      print_discard_hold_hint
       return 1
     fi
   fi

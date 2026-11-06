@@ -861,7 +861,7 @@ test_teardown_manual_backend_leaves_the_backlog_to_the_operator() {
 }
 
 test_local_only_truly_unpushed_refuses() {
-  local case_dir rc
+  local case_dir rc spec
   case_dir=$(make_case truly-unpushed)
   write_meta "$case_dir" local-only ship
   wt_commit "$case_dir" "unpushed work"
@@ -874,6 +874,12 @@ test_local_only_truly_unpushed_refuses() {
 
   expect_code 1 "$rc" "truly-unpushed: teardown should refuse"
   grep -q REFUSED "$case_dir/stderr" || fail "truly-unpushed: no REFUSED line in stderr"
+  grep -q 'fm-captain-hold.sh hold .*-discard --spec' "$case_dir/stderr" || fail "truly-unpushed: refusal does not print the discard hold command"
+  grep -q '"class":"delete"' "$case_dir/stderr" || fail "truly-unpushed: the discard hold is not class delete"
+  spec=$(sed -n "s/.*printf '%s' '\\(.*\\)' > .*/\\1/p" "$case_dir/stderr" | head -1)
+  # shellcheck source=bin/fm-hold-spec-lib.sh
+  . "$ROOT/bin/fm-hold-spec-lib.sh"
+  fm_hold_spec_normalize "$spec" 2026-11-06T12:00:00Z >/dev/null || fail "truly-unpushed: the printed discard spec is refused by the spec library"
   pass "local-only worktree with truly unpushed work is refused (safety preserved)"
 }
 
