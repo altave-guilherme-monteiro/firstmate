@@ -312,7 +312,41 @@ test_re_hold_never_reopens_an_answered_question() {
   pass "a re-hold merges new question ids, keeps answered questions closed, and refuses a repeated answered id"
 }
 
+test_answer_reaches_the_lead_status_and_the_main_wake() {
+  local main lead out home
+  main=$(make_home answer-main)
+  lead=$(make_home answer-lead)
+  home=$lead
+  printf 'sample-lead\n' > "$lead/.fm-secondmate-home"
+  printf 'schema=fm-secondmate-parent.v1\nroute=local\nparent_home=%s\n' "$main" > "$lead/.fm-secondmate-parent"
+  printf 'working [at=1]: building\n' > "$lead/state/origin-ship.status"
+  fm_write_meta "$lead/state/origin-ship.meta" "window=firstmate:fm-origin-ship" "kind=ship" "mode=ship" "project=alpha"
+  hold_plan "$lead" >/dev/null || fail "hold --spec was refused in the lead home"
+  captain "$lead" "$T1" decide sauron-merge-plan d1 --option no --note "wait for the sandbox" >/dev/null || fail "answer refused"
+  grep -q 'resolved .*key=captain-hold-sauron-merge-plan-d1.*decision answered: sauron-merge-plan d1 -> No; note: wait for the sandbox' "$lead/state/sauron-merge-plan.status" \
+    || fail "no answer line in the lead home: $(cat "$lead/state/sauron-merge-plan.status" 2>&1)"
+  grep -q "decision answered: $lead sauron-merge-plan d1 -> No" "$main/state/.wake-queue" \
+    || fail "no main wake for the answer: $(cat "$main/state/.wake-queue" 2>&1)"
+  captain "$lead" "$T1" decide sauron-merge-plan d4 --option - --note "use image B" >/dev/null || fail "comment-only answer refused"
+  grep -q 'd4 -> comment only; note: use image B' "$lead/state/sauron-merge-plan.status" || fail "the comment-only answer has no status line"
+  grep -q "sauron-merge-plan d4 -> comment only" "$main/state/.wake-queue" || fail "the comment-only answer has no main wake"
+  out=$(captain "$lead" "$T1" list --json | jq -r '[.items[] | select(.question_id == "d4")] | length')
+  assert_eq "$out" "0" "the comment-only answer must close its question"
+  pass "an answer appends the lead status line and queues the main wake, comment-only answers included"
+}
+
+test_answer_in_the_main_home_queues_its_own_wake() {
+  local home
+  home=$(make_home answer-solo)
+  hold_plan "$home" >/dev/null || fail "hold --spec was refused"
+  captain "$home" "$T1" decide sauron-merge-plan d1 --option yes >/dev/null || fail "answer refused"
+  grep -q 'sauron-merge-plan d1 -> Yes' "$home/state/.wake-queue" || fail "the main home queued no wake: $(cat "$home/state/.wake-queue" 2>&1)"
+  pass "an answer in the main home queues one check wake in the same home"
+}
+
 fm_test_run \
+  test_answer_reaches_the_lead_status_and_the_main_wake \
+  test_answer_in_the_main_home_queues_its_own_wake \
   test_re_hold_never_reopens_an_answered_question \
   test_hold_spec_computes_quadrants_and_stores_one_record \
   test_hold_spec_links_blocked_tasks_to_the_hold \
