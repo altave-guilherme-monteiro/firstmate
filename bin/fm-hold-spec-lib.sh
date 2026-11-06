@@ -47,6 +47,14 @@
 #       Records the recommendation of a quadrant 3 or 4 question with a veto time.
 #   fm_hold_spec_apply_answer <spec-json> <question-id> <option-id|-> <note> <now-iso>
 #       Records the user's answer to one question.
+#   fm_hold_spec_merge <existing-spec-json> <incoming-spec-json> <now-iso>
+#       Merges a re-hold of a task that already holds a spec. Only question ids
+#       the existing spec does not hold are added, each marked with added_at.
+#       Every existing question keeps its status, answer, and age, so a
+#       re-hold never reopens a decided question. A re-hold that repeats an
+#       answered question id is refused: a follow-up question needs a new id.
+#   fm_hold_spec_added_count <existing-spec-json> <merged-spec-json>
+#       The number of questions the merge added.
 #   fm_hold_spec_open_count <spec-json>
 #       The number of questions still open.
 #   fm_hold_spec_summary <spec-json>
@@ -238,6 +246,29 @@ fm_hold_spec_apply_answer() {
     return 1
   }
   printf '%s\n' "$out"
+}
+
+fm_hold_spec_merge() {
+  local out
+  out=$(jq -cn --argjson existing "$1" --argjson incoming "$2" --arg now "$3" "$FM_HOLD_SPEC_JQ_DEFS"'
+    ($existing.questions | map(select(.status == "answered") | .id)) as $answered
+    | ($existing.questions | map(.id)) as $known
+    | (if any($incoming.questions[]; .id | IN($answered[])) then
+         refuse("a re-hold repeats an answered question id (\([$incoming.questions[] | select(.id | IN($answered[])) | .id] | join(", "))); add a follow-up as a new question id")
+       else . end) as $_
+    | $existing
+    | .questions += [$incoming.questions[] | select(.id | IN($known[]) | not) | . + {added_at: $now}]
+    | .links = ((.links + $incoming.links) | unique)
+    | .updated = $now
+  ' 2>&1) || {
+    printf '%s\n' "$out" | fm_hold_spec_refusal_line >&2
+    return 1
+  }
+  printf '%s\n' "$out"
+}
+
+fm_hold_spec_added_count() {
+  jq -nr --argjson a "$1" --argjson b "$2" '($b.questions | length) - ($a.questions | length)'
 }
 
 fm_hold_spec_open_count() {

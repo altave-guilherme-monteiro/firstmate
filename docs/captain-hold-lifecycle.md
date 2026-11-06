@@ -373,6 +373,10 @@ This section records the mechanism that implements it.
 - A worker or lead that waits on the user for a merge, push, credential, discard, or answer files a typed hold with `hold --spec` through its lead or the main home.
   The Decisions panel reads only held tasks, so a `needs-decision` status line alone never reaches it.
   `adopt` turns such a line into a typed hold when the worker could not file one itself.
+- A lead that has a follow-up for the user adds it as a new question id with `hold --spec` on the same task.
+  It never re-holds the whole set, because an answered question id in a re-hold is refused.
+  The merge keeps every earlier question closed or open as it was, keeps the age of the card, and writes a status line only when it added a question.
+  `list --json` omits answered questions and reports `answered_count` and `question_count` for the card.
 - A question is `open`, `applied` (an automatic decision with a veto time), or `answered`.
   `decide --auto` and `decide --option` change one question and rewrite the spec line.
   When no question stays open, the task closes through the ordinary `answer` path, with `--release` when the row is work rather than a captain row.
