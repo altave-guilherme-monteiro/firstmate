@@ -64,6 +64,14 @@
 #     fm-classify-lib.sh's authoritative status_open_decisions fold and reconciled
 #     against current_state; hints.pending_decision and hints.blocked_event are
 #     booleans derived from that set.
+#     lifecycle.stop_cause says why a stopped task has no terminal, from its last
+#     status event and open decisions: paused (a paused event),
+#     with_orchestrator (needs-decision, blocked, or an open status decision,
+#     all of which need the Orchestrator, never the user), finished (a done
+#     event or a recorded PR), or silent_exit (no terminal event after the last
+#     working line). Only an open typed captain hold waits on the user; the
+#     snapshot reads that from the hold list, not from status lines. It is null
+#     for a task that is not stopped.
 #     endpoint.exists is the cheap local backend endpoint-presence read.
 #     endpoint.agent_alive is populated for local secondmates only, where it is
 #     useful return-channel supervision data; remote secondmates use "unknown"
@@ -910,8 +918,15 @@ task_json_lines() {
         lifecycle:(
           ($spawn_gen | (capture("^s(?<epoch>[0-9]+)(\\.|$)")? // null) | if . == null then null else (.epoch | tonumber) end) as $spawned
           | ($observed_at | try fromdateiso8601 catch null) as $now
-          | {stopped:($kind != "secondmate" and $current_state.state == "unknown"
-                       and (($current_state.detail // "") | startswith("backend target gone"))),
+          | ($kind != "secondmate" and $current_state.state == "unknown"
+             and (($current_state.detail // "") | startswith("backend target gone"))) as $stopped
+          | ($status_log.last_event.state // "") as $last
+          | {stopped:$stopped,
+             stop_cause:(if ($stopped | not) then null
+                         elif $last == "paused" then "paused"
+                         elif ($last | IN("needs-decision","blocked")) or $pending_decision or $blocked_event then "with_orchestrator"
+                         elif $last == "done" or $pr != "" then "finished"
+                         else "silent_exit" end),
              spawned_epoch:$spawned,
              elapsed_seconds:(if $spawned != null and $now != null then ($now - $spawned) else null end)}),
         endpoint:{target:($target | if . == "" then null else . end),exists:$endpoint_exists,agent_alive:$agent_alive,

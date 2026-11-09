@@ -266,10 +266,92 @@ test_release_of_a_captain_row_removes_it_from_queued() {
   pass "release closes a captain row and keeps a work row queued"
 }
 
+test_hold_spec_keeps_context_and_details_and_refuses_bad_types() {
+  local home spec out
+  home=$(make_home details)
+  spec="$home/rich.json"
+  printf '%s' '{"kind":"question","questions":[{"id":"q","text":"Merge the migration?","options":[{"id":"a","label":"Merge"},{"id":"b","label":"Wait"}],"recommendation":"a","class":"merge","undo_cost":"hours","context":"Blocks the redo.","details":{"text":["One.","Two."],"table":[["Rig","Count"],["X43","116"]],"links":[["PR 1","https://example.test/pr/1"]]}}]}' > "$spec"
+  captain "$home" "$T0" hold rich-call --spec "$spec" --repo sample >/dev/null || fail "a spec with context and details was refused"
+  out=$(items_of "$home" "$T0")
+  assert_eq "$(printf '%s' "$out" | jq -r '.[0].context')" "Blocks the redo." "context in list --json"
+  assert_eq "$(printf '%s' "$out" | jq -c '.[0].details.table')" '[["Rig","Count"],["X43","116"]]' "details table in list --json"
+  assert_eq "$(printf '%s' "$out" | jq -c '.[0].details.links')" '[["PR 1","https://example.test/pr/1"]]' "details links in list --json"
+  printf '%s' '{"kind":"question","questions":[{"id":"q","text":"Merge it?","options":[{"id":"a","label":"A"},{"id":"b","label":"B"}],"class":"none","undo_cost":"days","context":"line one\nline two"}]}' > "$spec"
+  captain "$home" "$T0" hold bad-context --spec "$spec" --repo sample >/dev/null 2>"$home/err" && fail "a multi-line context was accepted"
+  grep -q 'context must be one line' "$home/err" || fail "the refusal does not name the context"
+  printf '%s' '{"kind":"question","questions":[{"id":"q","text":"Merge it?","options":[{"id":"a","label":"A"},{"id":"b","label":"B"}],"class":"none","undo_cost":"days","details":{"table":[["a",1]]}}]}' > "$spec"
+  captain "$home" "$T0" hold bad-details --spec "$spec" --repo sample >/dev/null 2>"$home/err" && fail "a non-string table cell was accepted"
+  grep -q 'details must hold' "$home/err" || fail "the refusal does not name the details"
+  pass "hold --spec keeps context and details and refuses wrong types"
+}
+
+test_re_hold_never_reopens_an_answered_question() {
+  local home spec out before
+  home=$(make_home rehold)
+  spec="$home/again.json"
+  hold_plan "$home" >/dev/null || fail "hold --spec was refused"
+  before=$(items_of "$home" "$T0" | jq -r '.[0].hold_set')
+  captain "$home" "$T1" decide sauron-merge-plan d1 --option yes >/dev/null || fail "answer was refused"
+  out=$(items_of "$home" "$T1")
+  assert_eq "$(printf '%s' "$out" | jq -r '[.[].question_id] | sort | join(",")')" "d4,d5,d6" "an answered question must leave list --json"
+  assert_eq "$(printf '%s' "$out" | jq -r '.[0].answered_count')/$(printf '%s' "$out" | jq -r '.[0].question_count')" "1/4" "answered N of M"
+  write_spec "$spec"
+  captain "$home" "$T1" hold sauron-merge-plan --spec "$spec" >/dev/null 2>"$home/err" && fail "a re-hold that repeats an answered id was accepted"
+  grep -q 'repeats an answered question id' "$home/err" || fail "the refusal does not name the answered id: $(cat "$home/err")"
+  printf '%s' '{"kind":"question","questions":[{"id":"d4","text":"Which image do the rigs run?","options":[{"id":"a","label":"A"},{"id":"b","label":"B"}],"class":"none","undo_cost":"days"}]}' > "$spec"
+  captain "$home" "$T_LATE" hold sauron-merge-plan --spec "$spec" >/dev/null || fail "a re-hold of an open question was refused"
+  out=$(items_of "$home" "$T_LATE")
+  assert_eq "$(printf '%s' "$out" | jq -r '[.[].question_id] | sort | join(",")')" "d4,d5,d6" "a re-hold of open ids must add nothing"
+  assert_eq "$(printf '%s' "$out" | jq -r '.[0].hold_set')" "$before" "a re-hold must keep the age of the card"
+  printf '%s' '{"kind":"question","questions":[{"id":"d9","text":"Follow-up: roll back on failure?","options":[{"id":"y","label":"Yes"},{"id":"n","label":"No"}],"recommendation":"y","class":"none","undo_cost":"minutes"}]}' > "$spec"
+  captain "$home" "$T_LATE" hold sauron-merge-plan --spec "$spec" >/dev/null || fail "a follow-up question id was refused"
+  out=$(items_of "$home" "$T_LATE")
+  assert_eq "$(printf '%s' "$out" | jq -r '[.[] | select(.added_at != null) | .question_id] | join(",")')" "d9" "only the new question carries added_at"
+  assert_eq "$(printf '%s' "$out" | jq -r '.[0].answered_count')/$(printf '%s' "$out" | jq -r '.[0].question_count')" "1/5" "answered N of M after a follow-up"
+  assert_eq "$(printf '%s' "$out" | jq -r '.[0].hold_set')" "$before" "a follow-up must keep the age of the card"
+  pass "a re-hold merges new question ids, keeps answered questions closed, and refuses a repeated answered id"
+}
+
+test_answer_reaches_the_lead_status_and_the_main_wake() {
+  local main lead out home
+  main=$(make_home answer-main)
+  lead=$(make_home answer-lead)
+  home=$lead
+  printf 'sample-lead\n' > "$lead/.fm-secondmate-home"
+  printf 'schema=fm-secondmate-parent.v1\nroute=local\nparent_home=%s\n' "$main" > "$lead/.fm-secondmate-parent"
+  printf 'working [at=1]: building\n' > "$lead/state/origin-ship.status"
+  fm_write_meta "$lead/state/origin-ship.meta" "window=firstmate:fm-origin-ship" "kind=ship" "mode=ship" "project=alpha"
+  hold_plan "$lead" >/dev/null || fail "hold --spec was refused in the lead home"
+  captain "$lead" "$T1" decide sauron-merge-plan d1 --option no --note "wait for the sandbox" >/dev/null || fail "answer refused"
+  grep -q 'resolved .*key=captain-hold-sauron-merge-plan-d1.*decision answered: sauron-merge-plan d1 -> No; note: wait for the sandbox' "$lead/state/sauron-merge-plan.status" \
+    || fail "no answer line in the lead home: $(cat "$lead/state/sauron-merge-plan.status" 2>&1)"
+  grep -q "decision answered: $lead sauron-merge-plan d1 -> No" "$main/state/.wake-queue" \
+    || fail "no main wake for the answer: $(cat "$main/state/.wake-queue" 2>&1)"
+  captain "$lead" "$T1" decide sauron-merge-plan d4 --option - --note "use image B" >/dev/null || fail "comment-only answer refused"
+  grep -q 'd4 -> comment only; note: use image B' "$lead/state/sauron-merge-plan.status" || fail "the comment-only answer has no status line"
+  grep -q "sauron-merge-plan d4 -> comment only" "$main/state/.wake-queue" || fail "the comment-only answer has no main wake"
+  out=$(captain "$lead" "$T1" list --json | jq -r '[.items[] | select(.question_id == "d4")] | length')
+  assert_eq "$out" "0" "the comment-only answer must close its question"
+  pass "an answer appends the lead status line and queues the main wake, comment-only answers included"
+}
+
+test_answer_in_the_main_home_queues_its_own_wake() {
+  local home
+  home=$(make_home answer-solo)
+  hold_plan "$home" >/dev/null || fail "hold --spec was refused"
+  captain "$home" "$T1" decide sauron-merge-plan d1 --option yes >/dev/null || fail "answer refused"
+  grep -q 'sauron-merge-plan d1 -> Yes' "$home/state/.wake-queue" || fail "the main home queued no wake: $(cat "$home/state/.wake-queue" 2>&1)"
+  pass "an answer in the main home queues one check wake in the same home"
+}
+
 fm_test_run \
+  test_answer_reaches_the_lead_status_and_the_main_wake \
+  test_answer_in_the_main_home_queues_its_own_wake \
+  test_re_hold_never_reopens_an_answered_question \
   test_hold_spec_computes_quadrants_and_stores_one_record \
   test_hold_spec_links_blocked_tasks_to_the_hold \
   test_hold_spec_refuses_topic_lists_and_unsafe_quadrants \
+  test_hold_spec_keeps_context_and_details_and_refuses_bad_types \
   test_due_lists_only_questions_past_their_ttl \
   test_decide_auto_applies_cheap_questions_and_refuses_never_auto \
   test_user_answers_close_the_task_with_one_record \

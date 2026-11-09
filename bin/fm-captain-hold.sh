@@ -74,6 +74,12 @@
 # `adopt <status-file> <key>` turns an open `needs-decision` status line into a
 # held task named by the key and closes the key with `captain-held`. A line that
 # does not parse as one question stays unfiled: it prints `unfiled:` and exits 3.
+# `hold --spec` on a task that already holds a spec merges: only new question
+# ids are added (with `added_at`), existing questions keep their status and the
+# card keeps its age, and a spec that repeats an answered question id is
+# refused. A merge that adds nothing publishes no new status line.
+# A question may also carry `context` (one line) and `details` (text, table,
+# links) for the panel; the spec library header owns their shape.
 # `list --json [--all-homes] [--decided-since <time>]` prints every open
 # question with its group (now, this_week, applied, decided_for_you,
 # orchestrator_pending) plus drift rows (answered in status, answered by events,
@@ -84,7 +90,13 @@
 # `check: decision-ttl` from it.
 # `decide <task> <question> --auto` records the recommendation of a quadrant 3
 # or 4 question with a 24 hour veto time; it refuses a never-auto class.
-# `decide ... --option <id>` records the user's answer. The task closes through
+# `decide ... --option <id>` records the user's answer. Each answer also appends
+# one `resolved [key=captain-hold-<task>-<question>]` line naming the task, the
+# question id, the chosen option label, and the note to the status file of the
+# hold's origin worker (else the held task) in the owning home, and queues one
+# `check: decision answered: <home> <task> <question> -> <option>` wake in the
+# main home, so the answer reaches its lead or worker and the Orchestrator at
+# once, even while other questions of the task stay open. The task closes through
 # `answer` when no question stays open.
 # `veto <task> <question>` reverses an automatic decision inside its window:
 # it re-holds the question as quadrant 2 (in the same task when still open,
@@ -1130,6 +1142,7 @@ command_hold() {
     [ -n "$reason" ] || reason=$(first_question_text "$spec_json")
     spec_title=$(printf '%s' "$reason" | cut -c1-"$HOLD_SPEC_TITLE_MAX")
   fi
+  local announce=1
   [ -n "$reason" ] || fail "reason must not be empty"
   # bin/fm-hold-reason-lib.sh owns the storage constraint and reversible encoding.
   stored_reason=$(fm_hold_reason_encode "$reason") || fail "could not encode the hold reason"
@@ -1158,6 +1171,16 @@ command_hold() {
     existing_held=$(show_field_value "$show" held)
     if [ "$existing_hold_kind" = captain ] && [ "$existing_held" = yes ]; then
       preserve_hold_set=1
+      if [ -n "$spec_json" ]; then
+        local existing_spec merged_spec
+        existing_spec=$(shown_spec "$show") || existing_spec=''
+        if [ -n "$existing_spec" ]; then
+          merged_spec=$(fm_hold_spec_merge "$existing_spec" "$spec_json" "$(fm_hold_spec_now_iso)") \
+            || fail "refused re-hold of $id"
+          [ "$(fm_hold_spec_added_count "$existing_spec" "$merged_spec")" -gt 0 ] || announce=0
+          spec_json=$merged_spec
+        fi
+      fi
     fi
     if [ -n "$title" ]; then
       existing_title=$(show_field_value "$show" title)
@@ -1226,7 +1249,7 @@ command_hold() {
     task_show_or_fail "$id" "task $id disappeared while recording its hold spec"
     show=$TASK_SHOW_OUTPUT
   fi
-  publish_parent_hold "$id" "$occurrence" needs-decision "$reason"
+  [ "$announce" -eq 1 ] && publish_parent_hold "$id" "$occurrence" needs-decision "$reason"
   if [ -n "$origin" ]; then
     write_hold_origin "$id" "$(show_field "$show" body)" "$origin" || exit $?
   fi
@@ -2390,11 +2413,16 @@ task_items_json() {
         if .status == "open" then (if .quadrant == 1 then "now" elif .quadrant == 2 then "this_week" else "orchestrator_pending" end)
         elif .status == "applied" then (if .quadrant == 3 and ((.veto_until | fromdateiso8601) > $n) then "applied" else "decided_for_you" end)
         else "answered" end;
-      [.questions[]
+      (.questions | length) as $total
+      | ([.questions[] | select(.status == "answered")] | length) as $answered
+      | [.questions[]
+       | select(.status != "answered")
        | select($held == "yes" or (.mode == "auto" and $since != "" and .decided_at >= $since))
        | {home:$home, task:$task, title:$title, held:($held == "yes"), legacy:false,
           kind:$spec.kind, origin:$spec.origin, issue:$spec.issue, links:$spec.links, watch_key:$spec.watch_key,
+          question_count:$total, answered_count:$answered, added_at:(.added_at // null),
           question_id:.id, text:.text, options:.options, recommendation:.recommendation,
+          context:(.context // null), details:(.details // null),
           class:.class, undo_cost:.undo_cost, blocks:.blocks, deadline:.deadline,
           quadrant:.quadrant, override_reason:(if .quadrant_override then .reason else null end),
           status:.status, mode:(.mode // null), decision:(.decision // null), rule:(.rule // null),
@@ -2577,6 +2605,41 @@ close_decided_task() {
   return "$rc"
 }
 
+announce_answer() {  # <task-id> <question-id> <option-id|-> <note> <spec-after-answer>
+  local id=$1 question=$2 option=$3 note=$4 spec=$5 label origin status_file line main_home='' main_state key payload rc
+  label=$(printf '%s' "$spec" | jq -r --arg q "$question" --arg o "$option" '
+    [.questions[] | select(.id == $q)][0] as $question
+    | if $o == "-" then "comment only" else ([$question.options[] | select(.id == $o) | .label][0] // $o) end')
+  line="resolved [key=captain-hold-$id-$question]: decision answered: $id $question -> $label"
+  [ -z "$note" ] || line="$line; note: $note"
+  origin=$(printf '%s' "$spec" | jq -r '.origin // ""')
+  status_file="$STATE/$id.status"
+  [ -z "$origin" ] || [ ! -f "$STATE/$origin.meta" ] || status_file="$STATE/$origin.status"
+  fm_parent_channel_append_once "$status_file" "$(status_stamp_line "$(fm_parent_channel_clean_note "$line")")" \
+    || printf 'actionable: the answer to %s %s was recorded but its status line did not reach %s\n' "$id" "$question" "$status_file" >&2
+  main_home=$(answer_main_home)
+  [ -n "$main_home" ] || return 0
+  key="decision-answered:$FM_HOME:$id:$question"
+  payload="decision answered: $FM_HOME $id $question -> $label"
+  (
+    STATE="$main_home/state"
+    FM_WAKE_QUEUE="$STATE/.wake-queue"
+    FM_WAKE_QUEUE_LOCK="$STATE/.wake-queue.lock"
+    fm_wake_append check "$key" "$payload"
+  ) || rc=$?
+  [ "${rc:-0}" -eq 0 ] || printf 'actionable: the answer to %s %s could not queue its wake in %s\n' "$id" "$question" "$main_home" >&2
+}
+
+answer_main_home() {
+  if [ ! -f "$FM_HOME/.fm-secondmate-home" ]; then
+    printf '%s' "$FM_HOME"
+    return 0
+  fi
+  fm_secondmate_parent_record_parse "$FM_HOME/.fm-secondmate-parent" || return 0
+  [ "$FM_SECONDMATE_PARENT_ROUTE" = local ] && printf '%s' "$FM_SECONDMATE_PARENT_HOME"
+  return 0
+}
+
 command_decide() {
   local id=${1:-} question=${2:-} mode='' option='-' note='' now show hold_kind kind spec updated open verb
   [ "$#" -ge 3 ] || { usage >&2; exit 2; }
@@ -2614,6 +2677,7 @@ command_decide() {
     verb=answered
   fi
   write_hold_spec_line "$id" "$updated"
+  [ "$mode" != answer ] || announce_answer "$id" "$question" "$option" "$note" "$updated"
   open=$(fm_hold_spec_open_count "$updated")
   printf '%s: %s %s\n' "$verb" "$id" "$question"
   if [ "$open" -eq 0 ]; then

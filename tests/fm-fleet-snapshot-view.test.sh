@@ -1175,7 +1175,38 @@ test_stopped_task_reports_its_elapsed_time_since_spawn() {
   pass "snapshot flags a task with no endpoint as stopped with its elapsed time"
 }
 
+test_stopped_task_cause_follows_its_last_status_event() {
+  local home fakebin out id line
+  home=$(make_home stop-cause)
+  fakebin=$(fm_fakebin "$home")
+  printf '#!/usr/bin/env bash\nexit 0\n' > "$fakebin/tmux"
+  chmod +x "$fakebin/tmux"
+  for id in ended-ship asking-ship silent-ship paused-ship; do
+    mkdir -p "$home/projects/$id"
+    fm_write_meta "$home/state/$id.meta" \
+      "window=firstmate:fm-$id" \
+      "worktree=$home/projects/$id" \
+      "project=alpha" \
+      "harness=claude" \
+      "kind=ship" \
+      "mode=ship" \
+      "spawn_gen=s1000000100.123.456"
+  done
+  printf 'working [at=1000000200]: building\ndone [at=1000000300]: ready in branch x\n' > "$home/state/ended-ship.status"
+  printf 'working [at=1000000200]: building\nneeds-decision [at=1000000300] [key=ask-1]: merge or wait\n' > "$home/state/asking-ship.status"
+  printf 'working [at=1000000200]: building\n' > "$home/state/silent-ship.status"
+  printf 'working [at=1000000200]: building\npaused [at=1000000300]: waiting for a build\n' > "$home/state/paused-ship.status"
+  out=$(PATH="$fakebin:$PATH" FM_HOME="$home" FM_SNAPSHOT_NOW=2001-09-09T01:55:00Z "$SNAPSHOT" --json)
+  for line in ended-ship=finished asking-ship=with_orchestrator silent-ship=silent_exit paused-ship=paused; do
+    printf '%s' "$out" | jq -e --arg id "${line%%=*}" --arg cause "${line##*=}" '
+      (.tasks[] | select(.id == $id) | .lifecycle) | .stopped == true and .stop_cause == $cause
+    ' >/dev/null || fail "stop_cause of ${line%%=*} must be ${line##*=}: $(printf '%s' "$out" | jq -c '.tasks[] | {id, lifecycle}')"
+  done
+  pass "snapshot classifies a stopped task by its last status event"
+}
+
 fm_test_run \
+  test_stopped_task_cause_follows_its_last_status_event \
   test_stopped_task_reports_its_elapsed_time_since_spawn \
   test_empty_fleet_json \
   test_fixture_snapshot_json \
