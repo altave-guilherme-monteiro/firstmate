@@ -20,8 +20,13 @@
 # and secondmate-home ownership aligned with the work that discovered the call.
 #
 # Usage:
-#   fm-captain-hold.sh hold <task-id> --reason <reason> \
+#   fm-captain-hold.sh hold <task-id> (--reason <reason> | --spec <spec.json>) \
 #     [--title <title>] [--repo <repo>] [--origin <origin-id>] [--until YYYY-MM-DD]
+#   fm-captain-hold.sh adopt <status-file> <key>
+#   fm-captain-hold.sh list --json [--all-homes] [--decided-since <time>]
+#   fm-captain-hold.sh due [--json]
+#   fm-captain-hold.sh decide <task-id> <question-id> (--auto | --option <option-id> [--note <text>])
+#   fm-captain-hold.sh veto <task-id> <question-id>
 #   fm-captain-hold.sh answer <task-id> --decision-file <path> [--release]
 #   fm-captain-hold.sh answers [<legacy-origin> | --any-origin] --source <provenance>   (keyed answers on stdin)
 #   fm-captain-hold.sh reconcile-requests --source-id <source-id> --source <provenance>   (task ids on stdin)
@@ -56,6 +61,34 @@
 # `--until` records the captain's own deferral date through `tasks-axi hold
 # --until`, so a "revisit later" answer is stored as a date instead of a live
 # card.
+#
+# TYPED HOLDS, TRIAGE, AND THE DECISIONS PANEL (fm-hold-v2).
+# docs/decisions/0001-decisions-and-work-panels.md owns the design; the typed
+# spec and its triage rules live in bin/fm-hold-spec-lib.sh.
+# `hold --spec <file>` stores a typed spec (questions, options, one
+# recommendation per question, class, undo_cost, blocks, deadline) as one body
+# line and computes each question's quadrant and TTL. A topic list is refused,
+# and so is a quadrant 3 or 4 question without a recommendation. Each task a
+# question blocks gets a `block --by` link to the hold, so it is not shown as
+# able to start. `--reason` defaults to the first question.
+# `adopt <status-file> <key>` turns an open `needs-decision` status line into a
+# held task named by the key and closes the key with `captain-held`. A line that
+# does not parse as one question stays unfiled: it prints `unfiled:` and exits 3.
+# `list --json [--all-homes] [--decided-since <time>]` prints every open
+# question with its group (now, this_week, applied, decided_for_you,
+# orchestrator_pending) plus drift rows (answered in status, answered by events,
+# unfiled, ttl_due). --decided-since adds automatically decided questions of
+# closed tasks. --all-homes adds each registered lead home.
+# `due [--json]` prints one row per open question whose TTL has passed
+# (task, question, quadrant, ttl_at, bucket); the watcher raises
+# `check: decision-ttl` from it.
+# `decide <task> <question> --auto` records the recommendation of a quadrant 3
+# or 4 question with a 24 hour veto time; it refuses a never-auto class.
+# `decide ... --option <id>` records the user's answer. The task closes through
+# `answer` when no question stays open.
+# `veto <task> <question>` reverses an automatic decision inside its window:
+# it re-holds the question as quadrant 2 (in the same task when still open,
+# else in a new task named <task>-veto-<question>) and steers the origin worker.
 #
 # `answer` records the captain's exact words and resolves the call in the same
 # act. It requires a non-empty captain decision file of at most 8192 bytes and
@@ -240,6 +273,9 @@ DATA="${FM_DATA_OVERRIDE:-$FM_HOME/data}"
 # shellcheck source=bin/fm-parent-channel-lib.sh
 # shellcheck disable=SC1091
 . "$SCRIPT_DIR/fm-parent-channel-lib.sh"
+# shellcheck source=bin/fm-hold-spec-lib.sh
+# shellcheck disable=SC1091
+. "$SCRIPT_DIR/fm-hold-spec-lib.sh"
 
 PARENT_HOLD_PUBLISHED=0
 publish_parent_hold() {  # <task-id> <occurrence> <verb> <note>
@@ -1073,6 +1109,7 @@ verify_entry_durable() {  # <origin-or-empty> <entry>; prints "<id> <how> <origi
 command_hold() {
   local id=${1:-} title='' reason='' repo='' origin='' until='' show state existing_title body='' hold_kind hold_set occurrence
   local existing_hold_kind='' existing_held='' preserve_hold_set=0 stored_reason original_body='' hold_status=0
+  local spec_file='' spec_json='' spec_title=''
   [ "$#" -ge 1 ] || { usage >&2; exit 2; }
   shift
   while [ "$#" -gt 0 ]; do
@@ -1082,11 +1119,17 @@ command_hold() {
       --repo) shift; repo=${1:-} ;;
       --origin) shift; origin=${1:-} ;;
       --until) shift; until=${1:-} ;;
+      --spec) shift; spec_file=${1:-} ;;
       *) usage >&2; exit 2 ;;
     esac
     shift
   done
   validate_slug task-id "$id"
+  if [ -n "$spec_file" ]; then
+    spec_json=$(prepare_hold_spec "$id" "$spec_file" "$origin") || exit $?
+    [ -n "$reason" ] || reason=$(first_question_text "$spec_json")
+    spec_title=$(printf '%s' "$reason" | cut -c1-"$HOLD_SPEC_TITLE_MAX")
+  fi
   [ -n "$reason" ] || fail "reason must not be empty"
   # bin/fm-hold-reason-lib.sh owns the storage constraint and reversible encoding.
   stored_reason=$(fm_hold_reason_encode "$reason") || fail "could not encode the hold reason"
@@ -1121,6 +1164,7 @@ command_hold() {
       [ "$existing_title" = "$title" ] || fail "existing task $id has a different title"
     fi
   else
+    [ -n "$title" ] || title=$spec_title
     [ -n "$title" ] || fail "--title is required to create task $id"
     validate_one_line title "$title"
     if [ -z "$repo" ] && [ -n "$origin" ] && [ -f "$STATE/$origin.meta" ]; then
@@ -1176,6 +1220,12 @@ command_hold() {
   [ -n "$(body_hold_set_timestamp "$(show_field_value "$show" body)")" ] \
     || fail "task $id lost its hold-set stamp while being held"
   occurrence=$(( $(resolution_record_count "$(show_field "$show" body)") + 1 ))
+  if [ -n "$spec_json" ]; then
+    write_hold_spec_line "$id" "$spec_json"
+    link_blocked_tasks "$id" "$spec_json"
+    task_show_or_fail "$id" "task $id disappeared while recording its hold spec"
+    show=$TASK_SHOW_OUTPUT
+  fi
   publish_parent_hold "$id" "$occurrence" needs-decision "$reason"
   if [ -n "$origin" ]; then
     write_hold_origin "$id" "$(show_field "$show" body)" "$origin" || exit $?
@@ -1244,9 +1294,18 @@ apply_pending_retained_artifact() {  # <task-id>
   esac
 }
 
+close_released_captain_row() {
+  local show
+  task_show "$1" || return 0
+  show=$TASK_SHOW_OUTPUT
+  [ "$(show_field_value "$show" kind)" = captain ] || return 0
+  tasks_axi "done" "$1" >/dev/null
+}
+
 close_answered() {  # <task-id> <release-0-or-1>
   if [ "$2" = 1 ]; then
-    tasks_axi unhold "$1" >/dev/null
+    tasks_axi unhold "$1" >/dev/null || return 1
+    close_released_captain_row "$1"
   else
     apply_pending_retained_artifact "$1" || return 1
     tasks_axi "done" "$1" "${RETAINED_CLOSE_ARGS[@]+"${RETAINED_CLOSE_ARGS[@]}"}" >/dev/null
@@ -1307,6 +1366,12 @@ command_answer() {
       [ "$(recorded_decision_digest "$body" || true)" = "$DECISION_DIGEST" ] \
         || fail "captain-held task $id records a different captain decision"
       recorded_mode=$(recorded_resolution_mode "$body" || true)
+      if [ "$release" = 1 ] && [ "$recorded_mode" = released ]; then
+        remove_interrupted_answer_stamp "$id"
+        publish_parent_resolution_then_retire "$id" $((occurrence - 1)) released
+        printf 'released: %s\n' "$id"
+        return 0
+      fi
       closed_answer_replay_mode_compatible "$recorded_mode" "$body" \
         || fail "task $id records this resolution with mode ${recorded_mode:-unknown}; it is not a captain-answer replay"
       [ "$release" = 0 ] \
@@ -2210,7 +2275,466 @@ command_open() {  # <task-id> [--identity] [--distinguish-absent]
   exit 2
 }
 
+HOLD_SPEC_TITLE_MAX=80
+HOLD_SPEC_FILE_MAX_BYTES=65536
+HOLD_LIST_LIMIT=500
+DECISIONS_LIST_SCHEMA=fm-decisions.v2
+UNFILED_EXIT=3
+STALE_LEAD_LOG_SECONDS=21600
+ADOPT_NOTE_MAX=300
+
+prepare_hold_spec() {
+  local id=$1 file=$2 origin=$3 raw size
+  [ -f "$file" ] && [ -r "$file" ] || fail "spec file does not exist: $file"
+  size=$(LC_ALL=C wc -c < "$file" | tr -d ' ')
+  [ "$size" -le "$HOLD_SPEC_FILE_MAX_BYTES" ] || fail "spec file exceeds $HOLD_SPEC_FILE_MAX_BYTES bytes"
+  raw=$(cat "$file")
+  printf '%s' "$raw" | jq -e . >/dev/null 2>&1 || fail "spec file is not valid JSON"
+  if [ -n "$origin" ]; then
+    raw=$(printf '%s' "$raw" | jq -c --arg origin "$origin" '.origin = (.origin // $origin)')
+  fi
+  fm_hold_spec_normalize "$raw" "$(fm_hold_spec_now_iso)" || fail "refused spec for $id"
+}
+
+first_question_text() {
+  printf '%s' "$1" | jq -r '.questions[0].text'
+}
+
+write_hold_spec_line() {
+  local id=$1 spec=$2 body header rest new_body tmp line
+  task_show_or_fail "$id" "task $id disappeared before recording its hold spec"
+  body=$(decode_shown_value "$(show_field "$TASK_SHOW_OUTPUT" body)") \
+    || fail "could not decode the existing body for $id"
+  line=$(fm_hold_spec_line "$spec")
+  header=$(printf '%s\n' "$body" | awk 'NF == 0 { exit } { print }' \
+    | awk -v prefix="$FM_HOLD_SPEC_PREFIX" 'index($0, prefix) != 1')
+  rest=$(printf '%s\n' "$body" | awk 'seen { print; next } NF == 0 { seen = 1 }')
+  new_body=$(printf '%s\n%s' "$header" "$line")
+  if [ -n "$rest" ]; then
+    new_body=$(printf '%s\n\n%s' "$new_body" "$rest")
+  fi
+  tmp=$(umask 077; mktemp "${TMPDIR:-/tmp}/fm-captain-hold-spec.XXXXXX") \
+    || fail "cannot stage the hold spec"
+  if ! printf '%s\n' "$new_body" > "$tmp" || ! tasks_axi update "$id" --body-file "$tmp" >/dev/null; then
+    rm -f -- "$tmp"
+    fail "could not record the hold spec on $id"
+  fi
+  rm -f -- "$tmp"
+}
+
+link_blocked_tasks() {
+  local hold=$1 spec=$2 blocked
+  while IFS= read -r blocked; do
+    [ -n "$blocked" ] && [ "$blocked" != "$hold" ] || continue
+    task_show "$blocked" || continue
+    [ "$(show_field "$TASK_SHOW_OUTPUT" state)" != "done" ] || continue
+    tasks_axi block "$blocked" --by "$hold" >/dev/null 2>&1 \
+      || printf 'actionable: could not record that %s waits on %s\n' "$blocked" "$hold" >&2
+  done <<EOT
+$(printf '%s' "$spec" | jq -r '[.questions[].blocks[]] | unique | .[]')
+EOT
+}
+
+shown_spec() {
+  local body
+  body=$(decode_shown_value "$(show_field "$1" body)") || return 1
+  fm_hold_spec_extract "$body"
+}
+
+task_ids_in_state() {
+  local data
+  data=$(fm_backlog_data_absolute "$DATA") || return 0
+  fm_backlog_row_list "$data" --state "$1" --limit "$HOLD_LIST_LIMIT" 2>/dev/null | awk -F, '
+    /^  [A-Za-z0-9._-]+,/ { id = $1; sub(/^ +/, "", id); print id }
+  '
+}
+
+iso_or_date_to_iso() {
+  case "$1" in
+    [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]) printf '%sT00:00:00Z' "$1" ;;
+    *) printf '%s' "$1" ;;
+  esac
+}
+
+shown_hold_reason() {
+  local raw decoded
+  raw=$(show_field "$1" hold_reason)
+  decoded=$(printf 'task:\n  hold_reason: %s\n' "$raw" | fm_hold_reason_decode_stream toon | sed -n 's/^  hold_reason: //p')
+  decode_shown_value "$decoded"
+}
+
+task_items_json() {
+  local id=$1 show=$2 now=$3 held=$4 since=$5 spec title hold_set body reason
+  title=$(show_field_value "$show" title)
+  body=$(decode_shown_value "$(show_field "$show" body)") || return 0
+  hold_set=$(iso_or_date_to_iso "$(body_hold_set_timestamp "$body")")
+  spec=$(fm_hold_spec_extract "$body")
+  if [ -z "$spec" ]; then
+    [ "$held" = yes ] || return 0
+    reason=$(shown_hold_reason "$show")
+    jq -nc --arg home "$FM_HOME" --arg task "$id" --arg title "$title" --arg hold_set "$hold_set" --arg now "$now" \
+      --arg body "$body" --arg reason "$reason" '
+      [{home:$home, task:$task, title:$title, held:true, legacy:true, question_id:null, text:$title,
+        body:$body, reason:$reason,
+        options:[], recommendation:null, quadrant:2, group:"this_week", status:"open",
+        hold_set:(if $hold_set == "" then null else $hold_set end),
+        age_seconds:(if $hold_set == "" then null else (($now | fromdateiso8601) - ($hold_set | fromdateiso8601)) end)}]'
+    return 0
+  fi
+  [ "$held" != yes ] || spec=$(fm_hold_spec_refresh "$spec" "$now")
+  printf '%s' "$spec" | jq -c --arg home "$FM_HOME" --arg task "$id" --arg title "$title" \
+    --arg hold_set "$hold_set" --arg now "$now" --arg held "$held" --arg since "$since" '
+    ($now | fromdateiso8601) as $n
+    | . as $spec
+    | def group:
+        if .status == "open" then (if .quadrant == 1 then "now" elif .quadrant == 2 then "this_week" else "orchestrator_pending" end)
+        elif .status == "applied" then (if .quadrant == 3 and ((.veto_until | fromdateiso8601) > $n) then "applied" else "decided_for_you" end)
+        else "answered" end;
+      [.questions[]
+       | select($held == "yes" or (.mode == "auto" and $since != "" and .decided_at >= $since))
+       | {home:$home, task:$task, title:$title, held:($held == "yes"), legacy:false,
+          kind:$spec.kind, origin:$spec.origin, issue:$spec.issue, links:$spec.links, watch_key:$spec.watch_key,
+          question_id:.id, text:.text, options:.options, recommendation:.recommendation,
+          class:.class, undo_cost:.undo_cost, blocks:.blocks, deadline:.deadline,
+          quadrant:.quadrant, override_reason:(if .quadrant_override then .reason else null end),
+          status:.status, mode:(.mode // null), decision:(.decision // null), rule:(.rule // null),
+          decided_at:(.decided_at // null), veto_until:(.veto_until // null), ttl_at:.ttl_at,
+          group:group, hold_set:(if $hold_set == "" then null else $hold_set end),
+          age_seconds:(if $hold_set == "" then null else ($n - ($hold_set | fromdateiso8601)) end)}]'
+}
+
+home_items_json() {
+  local now=$1 since=$2 id show arrays=''
+  while IFS= read -r id; do
+    [ -n "$id" ] || continue
+    task_show "$id" || continue
+    show=$TASK_SHOW_OUTPUT
+    [ "$(show_field_value "$show" hold_kind)" = captain ] || continue
+    [ "$(show_field "$show" state)" != "done" ] || continue
+    arrays="$arrays$(task_items_json "$id" "$show" "$now" yes "$since")"$'\n'
+  done <<EOT
+$(task_ids_in_state held)
+EOT
+  if [ -n "$since" ]; then
+    while IFS= read -r id; do
+      [ -n "$id" ] || continue
+      task_show "$id" || continue
+      show=$TASK_SHOW_OUTPUT
+      [ "$(show_field_value "$show" hold_kind)" = captain ] || continue
+      arrays="$arrays$(task_items_json "$id" "$show" "$now" no "$since")"$'\n'
+    done <<EOT
+$(task_ids_in_state "done")
+EOT
+  fi
+  printf '%s' "$arrays" | jq -sc 'add // []'
+}
+
+drift_row() {
+  jq -nc --arg type "$1" --arg home "$FM_HOME" --arg task "$2" --arg key "$3" --arg detail "$4" \
+    '{type:$type, home:$home, task:$task, key:$key, detail:$detail}'
+}
+
+home_drift_rows() {
+  local items=$1 now=$2 id origin key title verb note f known watch resolve
+  resolve=${FM_CLASSIFY_RESOLVE_VERB:-$FM_CLASSIFY_RESOLVE_VERB_DEFAULT}
+  while IFS=$'\t' read -r id origin key title; do
+    [ -n "$id" ] || continue
+    drift_row answered_in_status "$id" "$key" "$title"
+  done <<EOT
+$( (command_diverged) 2>/dev/null || true)
+EOT
+  while IFS=$'\t' read -r id origin watch; do
+    [ -n "$id" ] && [ -n "$watch" ] && [ -f "$STATE/$origin.status" ] || continue
+    if [ "$(status_key_closing_verb "$STATE/$origin.status" "$watch")" = "$resolve" ]; then
+      drift_row answered_by_events "$id" "$watch" "status key $watch of $origin is resolved while the call is still held"
+    fi
+  done <<EOT
+$(printf '%s' "$items" | jq -r '[.[] | select(.held and .watch_key != null and .origin != null)] | unique_by(.task) | .[] | [.task, .origin, .watch_key] | @tsv')
+EOT
+  known=$(printf '%s' "$items" | jq -r '[.[].task] | unique | .[]')
+  for f in "$STATE"/*.status; do
+    [ -f "$f" ] && [ -r "$f" ] && [ ! -L "$f" ] || continue
+    origin=$(basename "$f"); origin=${origin%.status}
+    while IFS=$'\t' read -r key verb note; do
+      [ "$verb" = needs-decision ] && [ -n "$key" ] || continue
+      list_has_line "$known" "$key" && continue
+      drift_row unfiled "$origin" "$key" "$(sanitize_field "$note")"
+    done <<EOT
+$(status_own_open_decisions "$f")
+EOT
+  done
+  printf '%s' "$items" | jq -c --arg home "$FM_HOME" --arg now "$now" '
+    .[] | select(.held and .status == "open" and .quadrant <= 2 and .ttl_at != null and .ttl_at <= $now)
+    | {type:"ttl_due", home:$home, task:.task, key:.question_id, detail:.ttl_at}'
+}
+
+registered_lead_homes() {
+  local registry="$DATA/secondmates.md"
+  [ -f "$registry" ] || return 0
+  sed -n 's/^- \([A-Za-z0-9._-]*\) .*(home: \([^;)]*\);.*/\1\t\2/p' "$registry"
+}
+
+stale_lead_row() {
+  local lead=$1 items=$2 now=$3 log mtime
+  [ "$(printf '%s' "$items" | jq 'length')" -gt 0 ] || return 0
+  log="$STATE/$lead.status"
+  [ -f "$log" ] || return 0
+  mtime=$(stat -c %Y "$log" 2>/dev/null || stat -f %m "$log" 2>/dev/null || echo "$now")
+  [ $((now - mtime)) -gt "$STALE_LEAD_LOG_SECONDS" ] || return 0
+  jq -nc --arg lead "$lead" --arg age "$((now - mtime))" \
+    '{type:"stale_summary", home:$lead, task:null, key:null, detail:"the status log of lead \($lead) is \($age) seconds old; its summary can miss held decisions"}'
+}
+
+command_list() {
+  local json=0 all=0 since='' now items drift homes parts part lead home now_epoch stale
+  local -a sub_since=()
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --json) json=1 ;;
+      --all-homes) all=1 ;;
+      --decided-since) shift; since=${1:-}; [ -n "$since" ] || { usage >&2; exit 2; } ;;
+      *) usage >&2; exit 2 ;;
+    esac
+    shift
+  done
+  [ "$json" = 1 ] || { usage >&2; exit 2; }
+  command -v jq >/dev/null 2>&1 || fail "jq is required"
+  now=$(fm_hold_spec_now_iso)
+  now_epoch=$(printf '"%s"' "$now" | jq 'fromdateiso8601')
+  [ -z "$since" ] || sub_since=(--decided-since "$since")
+  items=$(home_items_json "$now" "$since")
+  drift=$(home_drift_rows "$items" "$now" | jq -sc '.')
+  parts=$(jq -nc --argjson items "$items" --argjson drift "$drift" '{items:$items, drift:$drift}')
+  homes=$(jq -nc --arg home "$FM_HOME" '[{id:"main", home:$home}]')
+  if [ "$all" = 1 ]; then
+    while IFS=$'\t' read -r lead home; do
+      [ -n "$lead" ] && [ -d "$home" ] || continue
+      part=$(env -u FM_STATE_OVERRIDE -u FM_DATA_OVERRIDE FM_HOME="$home" \
+        "$SCRIPT_DIR/fm-captain-hold.sh" list --json "${sub_since[@]+"${sub_since[@]}"}" 2>/dev/null) \
+        || part=$(jq -nc --arg home "$home" '{items:[], drift:[{type:"unreadable_home", home:$home, task:null, key:null, detail:"the home could not be read"}]}')
+      stale=$(stale_lead_row "$lead" "$(printf '%s' "$part" | jq -c '.items')" "$now_epoch")
+      parts=$(jq -nc --argjson acc "$parts" --argjson part "$part" --argjson stale "${stale:-null}" '
+        {items:($acc.items + $part.items),
+         drift:($acc.drift + $part.drift + (if $stale == null then [] else [$stale] end))}')
+      homes=$(jq -nc --argjson homes "$homes" --arg lead "$lead" --arg home "$home" '$homes + [{id:$lead, home:$home}]')
+    done <<EOT
+$(registered_lead_homes)
+EOT
+  fi
+  jq -nc --arg schema "$DECISIONS_LIST_SCHEMA" --arg now "$now" --argjson homes "$homes" --argjson parts "$parts" '
+    {schema:$schema, generated_at:$now, homes:$homes, items:$parts.items, drift:$parts.drift}'
+}
+
+command_due() {
+  local json=0 now id show spec rows question quadrant ttl bucket
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --json) json=1 ;;
+      *) usage >&2; exit 2 ;;
+    esac
+    shift
+  done
+  command -v tasks-axi >/dev/null 2>&1 || return 0
+  now=$(fm_hold_spec_now_iso)
+  while IFS= read -r id; do
+    [ -n "$id" ] || continue
+    task_show "$id" || continue
+    show=$TASK_SHOW_OUTPUT
+    [ "$(show_field_value "$show" hold_kind)" = captain ] || continue
+    spec=$(shown_spec "$show")
+    [ -n "$spec" ] || continue
+    spec=$(fm_hold_spec_refresh "$spec" "$now")
+    rows=$(fm_hold_spec_due "$spec" "$now")
+    [ -n "$rows" ] || continue
+    while IFS=$'\t' read -r question quadrant ttl bucket; do
+      [ -n "$question" ] || continue
+      if [ "$json" = 1 ]; then
+        jq -nc --arg task "$id" --arg question "$question" --argjson quadrant "$quadrant" --arg ttl_at "$ttl" --argjson bucket "$bucket" \
+          '{task:$task, question:$question, quadrant:$quadrant, ttl_at:$ttl_at, bucket:$bucket}'
+      else
+        printf '%s\t%s\t%s\t%s\t%s\n' "$id" "$question" "$quadrant" "$ttl" "$bucket"
+      fi
+    done <<EOT
+$rows
+EOT
+  done <<EOT
+$(task_ids_in_state held)
+EOT
+}
+
+close_decided_task() {
+  local id=$1 spec=$2 kind=$3 tmp rc=0
+  tmp=$(umask 077; mktemp "${TMPDIR:-/tmp}/fm-captain-hold-decide.XXXXXX") \
+    || fail "cannot stage the decision record"
+  fm_hold_spec_summary "$spec" > "$tmp"
+  release_task_control_lock
+  if [ "$kind" = captain ]; then
+    command_answer "$id" --decision-file "$tmp" || rc=$?
+  else
+    command_answer "$id" --decision-file "$tmp" --release || rc=$?
+  fi
+  rm -f -- "$tmp"
+  return "$rc"
+}
+
+command_decide() {
+  local id=${1:-} question=${2:-} mode='' option='-' note='' now show hold_kind kind spec updated open verb
+  [ "$#" -ge 3 ] || { usage >&2; exit 2; }
+  shift 2
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --auto) mode=auto ;;
+      --option) shift; mode=answer; option=${1:-} ;;
+      --note) shift; note=${1:-} ;;
+      *) usage >&2; exit 2 ;;
+    esac
+    shift
+  done
+  [ -n "$mode" ] || { usage >&2; exit 2; }
+  validate_slug task-id "$id"
+  validate_slug question-id "$question"
+  [ "$option" = - ] || validate_slug option-id "$option"
+  now=$(fm_hold_spec_now_iso)
+  acquire_task_control_lock "$id"
+  require_tasks_axi
+  task_show_or_fail "$id" "captain-held task $id is absent from this home's configured backlog"
+  show=$TASK_SHOW_OUTPUT
+  hold_kind=$(show_field_value "$show" hold_kind)
+  [ "$hold_kind" = captain ] && [ "$(show_field "$show" state)" != "done" ] \
+    || fail "task $id is not an open captain call"
+  kind=$(show_field_value "$show" kind)
+  spec=$(shown_spec "$show")
+  [ -n "$spec" ] || fail "task $id carries no typed hold spec"
+  spec=$(fm_hold_spec_refresh "$spec" "$now")
+  if [ "$mode" = auto ]; then
+    updated=$(fm_hold_spec_apply_auto "$spec" "$question" "$now") || fail "refused to apply question $question of $id"
+    verb=applied
+  else
+    updated=$(fm_hold_spec_apply_answer "$spec" "$question" "$option" "$note" "$now") || fail "refused to answer question $question of $id"
+    verb=answered
+  fi
+  write_hold_spec_line "$id" "$updated"
+  open=$(fm_hold_spec_open_count "$updated")
+  printf '%s: %s %s\n' "$verb" "$id" "$question"
+  if [ "$open" -eq 0 ]; then
+    close_decided_task "$id" "$updated" "$kind"
+  fi
+}
+
+relay_reversal() {
+  local origin=$1 text=$2 sender=${FM_CAPTAIN_HOLD_SEND_BIN:-$SCRIPT_DIR/fm-send.sh}
+  [ -n "$origin" ] && [ -f "$STATE/$origin.meta" ] || return 0
+  FM_HOME="$FM_HOME" "$sender" "$origin" "$text" >/dev/null 2>&1 \
+    || printf 'actionable: the reversal for %s did not reach its worker\n' "$origin" >&2
+}
+
+veto_reopen_spec() {
+  printf '%s' "$1" | jq -c --arg q "$2" --arg now "$3" '
+    .created = $now
+    | .updated = $now
+    | .questions |= map(
+        if .id == $q then
+          . as $applied
+          | del(.mode, .decision, .rule, .decided_at, .veto_until, .note)
+          | .status = "open"
+          | .quadrant_override = 2
+          | .reason = "Vetoed by the user; the applied decision was \($applied.decision)."
+        else . end)'
+}
+
+command_veto() {
+  local id=${1:-} question=${2:-} now show state spec status mode veto_until newid new_spec tmp origin text qtext
+  [ "$#" -eq 2 ] || { usage >&2; exit 2; }
+  validate_slug task-id "$id"
+  validate_slug question-id "$question"
+  now=$(fm_hold_spec_now_iso)
+  acquire_task_control_lock "$id"
+  require_tasks_axi
+  if ! task_show "$id"; then
+    task_show_archived "$id" || fail "task $id is absent from this home's backlog"
+  fi
+  show=$TASK_SHOW_OUTPUT
+  [ "$(show_field_value "$show" hold_kind)" = captain ] || fail "task $id was never held for the captain"
+  state=$(show_field "$show" state)
+  spec=$(shown_spec "$show")
+  [ -n "$spec" ] || fail "task $id carries no typed hold spec"
+  IFS=$'\t' read -r status mode veto_until <<EOT
+$(printf '%s' "$spec" | jq -r --arg q "$question" '[.questions[] | select(.id == $q)][0] | [(.status // ""), (.mode // ""), (.veto_until // "")] | @tsv')
+EOT
+  [ "$status" = applied ] && [ "$mode" = auto ] || fail "question $question of $id is not an automatic decision"
+  [ "$now" \< "$veto_until" ] || fail "the veto window of question $question ended at $veto_until"
+  origin=$(printf '%s' "$spec" | jq -r '.origin // ""')
+  text="Decision reversed by the user: question $question of $id is open again."
+  if [ "$state" != "done" ]; then
+    new_spec=$(veto_reopen_spec "$spec" "$question" "$now")
+    new_spec=$(fm_hold_spec_normalize "$new_spec" "$now") || fail "could not reopen question $question"
+    write_hold_spec_line "$id" "$new_spec"
+    release_task_control_lock
+    relay_reversal "$origin" "$text"
+    printf 'vetoed: %s %s\n' "$id" "$question"
+    return 0
+  fi
+  newid="$id-veto-$question"
+  validate_slug task-id "$newid"
+  if task_show "$newid"; then fail "task $newid already exists"; fi
+  new_spec=$(veto_reopen_spec "$spec" "$question" "$now" | jq -c --arg q "$question" '.questions |= map(select(.id == $q))')
+  qtext=$(printf '%s' "$new_spec" | jq -r '.questions[0].text' | cut -c1-"$HOLD_SPEC_TITLE_MAX")
+  tmp=$(umask 077; mktemp "${TMPDIR:-/tmp}/fm-captain-hold-veto.XXXXXX") || fail "cannot stage the veto spec"
+  printf '%s\n' "$new_spec" > "$tmp"
+  release_task_control_lock
+  if ! command_hold "$newid" --spec "$tmp" --title "Vetoed decision: $qtext" ${origin:+--origin "$origin"} >/dev/null; then
+    rm -f -- "$tmp"
+    fail "could not re-hold question $question"
+  fi
+  rm -f -- "$tmp"
+  relay_reversal "$origin" "$text A new decision $newid holds it."
+  printf 'vetoed: %s\n' "$newid"
+}
+
+command_adopt() {
+  local file=${1:-} key=${2:-} dir state_dir origin open line verb note tmp spec_json title append_rc
+  [ "$#" -eq 2 ] || { usage >&2; exit 2; }
+  validate_slug key "$key"
+  [ -f "$file" ] && [ -r "$file" ] && [ ! -L "$file" ] || fail "status file is not a readable regular file: $file"
+  dir=$(cd "$(dirname "$file")" && pwd -P)
+  state_dir=$(cd "$STATE" && pwd -P)
+  [ "$dir" = "$state_dir" ] || fail "status file is not in this home's state directory"
+  origin=$(basename "$file"); origin=${origin%.status}
+  open=$(status_open_decisions "$file")
+  line=$(printf '%s\n' "$open" | awk -F '\t' -v k="$key" '$1 == k { print; exit }')
+  [ -n "$line" ] || fail "no open decision with key $key in $file"
+  IFS=$'\t' read -r _ verb note <<EOT
+$line
+EOT
+  [ "$verb" = needs-decision ] || fail "key $key is a $verb line, not a needs-decision line"
+  note=$(sanitize_field "$note")
+  if [ -z "$note" ] || [ "${#note}" -gt "$ADOPT_NOTE_MAX" ] \
+    || [ "$(printf '%s' "$note" | tr -cd '?' | wc -c | tr -d ' ')" -gt 1 ]; then
+    printf 'unfiled: %s the line holds no single question of at most %s characters; file or answer it by hand\n' "$key" "$ADOPT_NOTE_MAX"
+    return "$UNFILED_EXIT"
+  fi
+  spec_json=$(jq -nc --arg origin "$origin" --arg text "$note" \
+    '{kind:"action", origin:$origin, questions:[{id:"call", text:$text, options:[], recommendation:null, class:"none", undo_cost:"days", blocks:[]}]}')
+  tmp=$(umask 077; mktemp "${TMPDIR:-/tmp}/fm-captain-hold-adopt.XXXXXX") || fail "cannot stage the adopted spec"
+  printf '%s\n' "$spec_json" > "$tmp"
+  title=$(printf '%s' "$note" | cut -c1-"$HOLD_SPEC_TITLE_MAX")
+  if ! command_hold "$key" --spec "$tmp" --title "$title" --reason "$note" --origin "$origin" >/dev/null; then
+    rm -f -- "$tmp"
+    fail "could not hold task $key"
+  fi
+  rm -f -- "$tmp"
+  append_rc=0
+  fm_wake_status_append_self_announced "$STATE" "$file" "captain-held [key=$key]: tracked by $key" || append_rc=$?
+  [ "$append_rc" -ne 2 ] || fail "cannot append the captain-held close for $key"
+  printf 'adopted: %s\n' "$key"
+}
+
 case "${1:-}" in
+  adopt) shift; command_adopt "$@" ;;
+  list) shift; command_list "$@" ;;
+  due) shift; command_due "$@" ;;
+  decide) shift; command_decide "$@" ;;
+  veto) shift; command_veto "$@" ;;
   hold) shift; command_hold "$@" ;;
   answer) shift; command_answer "$@" ;;
   answers) shift; command_answers "$@" ;;

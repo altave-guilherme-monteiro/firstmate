@@ -1417,6 +1417,8 @@ EOF
   assert_grep 'needs-decision [key=captain-hold-quoted-record-call-1]: captain hold quoted-record-call: quoted record choice pending' \
     <(sed -E 's/ \[at=[0-9]+\]//' "$channel") "body prose was incorrectly counted as a resolution record"
 
+  tasks_in "$mate" add mate-call "Choose the mate release" --kind ship --repo sample >/dev/null \
+    || fail "could not create the work row that the mate hold gates"
   run_captain "$mate" hold mate-call --title "Choose the mate release" \
     --reason "release choice pending" --repo sample >/dev/null \
     || fail "mate hold failed"
@@ -4255,6 +4257,10 @@ test_hold_origins_follow_backend_holds() {
           || fail "could not create $origin"
         write_origin_meta "$home" "$origin"
       done
+      if [ "$phase" = released ]; then
+        tasks_in "$home" add "$id" "Separate call" --kind ship --repo sample >/dev/null \
+          || fail "could not create the work row that the hold gates"
+      fi
       if [ "$phase" != new ]; then
         run_captain "$home" hold "$id" --title "Separate call" --reason "Choose for A" \
           --origin origin-a >/dev/null || fail "could not establish the original association"
@@ -4408,6 +4414,8 @@ test_interrupted_origin_move_does_not_inherit_the_previous_answer() {
           || fail "could not create $o"
         write_origin_meta "$home" "$o"
       done
+      tasks_in "$home" add "$id" "Separate call" --kind ship --repo sample >/dev/null \
+        || fail "could not create the work row that the hold gates"
       run_captain "$home" hold "$id" --title "Separate call" --reason "Choose for A" \
         --origin origin-a >/dev/null || fail "could not hold the call for A"
       printf 'Release this work.\n' > "$home/answer.txt"
