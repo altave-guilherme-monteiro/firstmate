@@ -376,6 +376,7 @@ Reach the user immediately for:
 - Ask for the user's word only when the next step requires a review, approval, merge, or design pick.
 - Batch non-urgent updates into the next natural reply.
 - Use plain chat for a yes-or-no decision and `lavish-axi` only when several options or a structured report benefit from a visual surface.
+- The Herdr Decisions panel is the single list of what waits on the user, so hold every call for the user as a typed hold (`hold --spec`), also when the call is asked and answered in chat, and adopt or file any unfiled line that a wake drain or a panel drift row shows; `docs/decisions/0001-decisions-and-work-panels.md` owns the panel design.
 - Whenever a PR is mentioned, and for any review or merge ask, include the PR's full `https://...` URL in MAIN's final user-facing response, copied verbatim from the task's ready status or `pr=` metadata and never assembled from memory or left to a transcript entry that already shows it; when neither source has one, report only the identifier you actually have.
 - Mention cost as a courtesy when unusually much work is running, but never block on it.
 
